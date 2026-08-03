@@ -1132,12 +1132,25 @@ function rebuildRequerimientos() {
 
   requerimientos = list.map((r, i) => ({ ...r, id: i + 1 }));
   applyStageEdits();
-  mergeProdListosInto(requerimientos);
+  if (shouldIncludeProdCatalog()) {
+    mergeProdListosInto(requerimientos);
+  }
   ensureCustomStagesOnReqs();
   requerimientos = requerimientos.map((r, i) => ({ ...r, id: i + 1 }));
   applyReqOrder();
   AREAS.length = 0;
   AREAS.push(...[...new Set(requerimientos.map((r) => r.area))]);
+}
+
+function shouldIncludeProdCatalog() {
+  if (typeof window.__linkprojectIncludeProdCatalog === "boolean") {
+    return window.__linkprojectIncludeProdCatalog;
+  }
+  const u = typeof window.__linkprojectGetUser === "function" ? window.__linkprojectGetUser() : null;
+  const email = String(u?.email || "").toLowerCase();
+  // María arma todo desde cero (sin catálogo automático de producción)
+  if (email === "mpluas@awenandwis.com") return false;
+  return true;
 }
 
 function refreshAppFromData() {
@@ -2652,20 +2665,14 @@ function prodListosAsFuenteRows() {
 window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
   const payload = data || {};
   const seedDefaults = !!options.seedDefaults;
-  const seedProdListos = !!options.seedProdListos;
+
+  if (typeof options.includeProdCatalog === "boolean") {
+    window.__linkprojectIncludeProdCatalog = options.includeProdCatalog;
+  }
 
   if (seedDefaults) {
     REQ_FUENTE = cloneFuente(DEFAULT_REQ_FUENTE);
     DEV_FUENTE = cloneFuente(DEFAULT_DEV_FUENTE);
-    stageEdits = {};
-    reqOrder = [];
-    customStages = [];
-    rebuildStagesList();
-  } else if (seedProdListos) {
-    // María: solo listos en producción; en curso queda vacío para armar desde cero
-    const rows = prodListosAsFuenteRows();
-    REQ_FUENTE = cloneFuente(rows);
-    DEV_FUENTE = cloneFuente(rows);
     stageEdits = {};
     reqOrder = [];
     customStages = [];
@@ -2692,7 +2699,7 @@ window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
   if (payload.decisionGlobal) {
     state.decisionGlobal = payload.decisionGlobal;
     applyDecisionUi(payload.decisionGlobal);
-  } else if (!seedDefaults && !seedProdListos) {
+  } else if (!seedDefaults) {
     state.decisionGlobal = null;
   }
 

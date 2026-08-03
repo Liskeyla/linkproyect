@@ -49,13 +49,13 @@ async function main() {
 
     const wsId = `user:${user.id}`;
     if (u.email === "mpluas@awenandwis.com") {
-      // María: workspace vacío para que el cliente cargue solo listos en producción
+      // María: vacío total para armar desde cero
       await prisma.workspace.upsert({
         where: { id: wsId },
         create: { id: wsId, payload: EMPTY_PAYLOAD, updatedBy: u.email },
         update: { payload: EMPTY_PAYLOAD, updatedBy: u.email },
       });
-      console.log(`✓ Workspace listo (producción vía seed cliente) para ${u.email}`);
+      console.log(`✓ Workspace vacío (desde cero) para ${u.email}`);
     } else {
       // Liskeyla: crea workspace si no existe (conserva datos si ya hay)
       const existing = await prisma.workspace.findUnique({ where: { id: wsId } });

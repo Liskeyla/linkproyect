@@ -112,16 +112,16 @@
 
     const data = json.data || {};
     const seedDefaults = !!json.seedDefaults;
-    const seedProdListos = !!json.seedProdListos;
+    const includeProdCatalog = json.includeProdCatalog !== false;
 
     if (typeof window.__linkprojectApplyRemote === "function") {
-      window.__linkprojectApplyRemote(data, { seedDefaults, seedProdListos });
+      window.__linkprojectApplyRemote(data, { seedDefaults, includeProdCatalog });
     }
 
     applyReadonlyUi();
     hydrated = true;
 
-    if ((seedDefaults || seedProdListos) && canWrite()) {
+    if (seedDefaults && canWrite()) {
       schedulePersist();
     }
     return true;
