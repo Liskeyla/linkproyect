@@ -157,6 +157,14 @@ export async function PUT(req: Request) {
       reqOrder: Array.isArray(body.reqOrder) ? body.reqOrder : current.reqOrder,
       customStages: Array.isArray(body.customStages) ? body.customStages : current.customStages,
       decisionGlobal: body.decisionGlobal !== undefined ? body.decisionGlobal : current.decisionGlobal,
+      designSourceSanitized:
+        body.designSourceSanitized !== undefined
+          ? !!body.designSourceSanitized
+          : !!(current as { designSourceSanitized?: boolean }).designSourceSanitized,
+      userOwnedData:
+        body.userOwnedData !== undefined
+          ? !!body.userOwnedData
+          : !!(current as { userOwnedData?: boolean }).userOwnedData,
     };
   }
 

@@ -50,7 +50,8 @@
       reqOrder: typeof reqOrder !== "undefined" ? reqOrder : [],
       customStages: typeof customStages !== "undefined" ? customStages : [],
       decisionGlobal: typeof state !== "undefined" ? state.decisionGlobal : null,
-      designSourceSanitized: !!window.__linkprojectDesignSourceSanitized,
+      designSourceSanitized: true,
+      userOwnedData: true,
     };
   }
 
@@ -122,7 +123,8 @@
     applyReadonlyUi();
     hydrated = true;
 
-    if (seedDefaults && canWrite()) {
+    // Siempre persistir tras cargar (incluye userOwnedData y migraciones)
+    if (canWrite() || canDecide()) {
       schedulePersist();
     }
     return true;

@@ -1439,13 +1439,7 @@ function rebuildRequerimientos() {
 
   requerimientos = list.map((r, i) => ({ ...r, id: i + 1 }));
   applyStageEdits();
-  // Las listas de avance (doc/QA/dev) que cargamos son solo para Liskeyla
-  if (isLiskeylaUser()) {
-    applyKnownStageProgress(requerimientos);
-  }
-  if (shouldIncludeProdCatalog()) {
-    mergeProdListosInto(requerimientos);
-  }
+  // Sin overlays de código: lo que hay en fuentes + stageEdits (base de datos) es la verdad
   ensureCustomStagesOnReqs();
   requerimientos = requerimientos.map((r, i) => ({ ...r, id: i + 1 }));
   applyReqOrder();
@@ -1485,12 +1479,105 @@ function syncWorkspaceUiForUser() {
 }
 
 function shouldIncludeProdCatalog() {
-  if (typeof window.__linkprojectIncludeProdCatalog === "boolean") {
-    return window.__linkprojectIncludeProdCatalog;
+  // Catálogo en código desactivado: los listos viven en la base del usuario
+  return false;
+}
+
+function upsertReqFuente(item, estado) {
+  const inicio = item.inicio || item.docInicio || item.plan || item.fin || item.real;
+  const fin = item.fin || item.docFin || item.real || item.plan || inicio;
+  let row = REQ_FUENTE.find((r) => namesMatch(r.nombre, item.nombre));
+  if (!row) {
+    REQ_FUENTE.push({
+      nombre: item.nombre,
+      area: item.area || "Sin área",
+      inicio: inicio || todayIso(),
+      fin: fin || inicio || todayIso(),
+      estado: estado || item.estado || "Pendiente",
+    });
+    return;
   }
-  // María: sin catálogo automático. Solo Liskeyla tiene listos históricos.
-  if (isMariaUser()) return false;
-  return isLiskeylaUser();
+  if (item.area) row.area = item.area;
+  if (estado) row.estado = estado;
+}
+
+function snapshotStageEditsFromReqs(list) {
+  const out = {};
+  list.forEach((req) => {
+    const key = normName(req.nombre);
+    const stages = {};
+    STAGES.forEach((s) => {
+      const et = req.etapas?.[s.key];
+      if (!et) return;
+      if (!et.planInicio && !et.planFin && !et.realInicio && !et.realFin) return;
+      stages[s.key] = {
+        planInicio: et.planInicio || null,
+        planFin: et.planFin || null,
+        realInicio: et.realInicio || null,
+        realFin: et.realFin || null,
+        responsable: et.responsable || responsableEtapa(s.key),
+        avance: et.avance || "",
+      };
+    });
+    if (Object.keys(stages).length) out[key] = stages;
+  });
+  return out;
+}
+
+/**
+ * Una sola vez: pasa listas del código → fuentes + stageEdits y marca userOwnedData.
+ * Después el usuario edita/borra y todo queda solo en base de datos.
+ */
+function materializeLiskeylaBaselineToOwnedData() {
+  DOC_FUNCIONAL_DONE.forEach((i) => upsertReqFuente(i, "Enviado"));
+  QA_STAGE_DATES.forEach((i) => upsertReqFuente(i, i.estado || "Pendiente"));
+  DEV_STAGE_DATES.forEach((i) => upsertReqFuente(i, "Enviado"));
+  DEV_LISTO_DATES.forEach((i) => upsertReqFuente(i, "Listo"));
+  DEFAULT_PROD_LISTOS.forEach((i) =>
+    upsertReqFuente(
+      {
+        nombre: i.nombre,
+        area: i.area,
+        inicio: i.docInicio || i.plan,
+        fin: i.docFin || i.real || i.plan,
+      },
+      "Listo"
+    )
+  );
+
+  const totalHint = Math.max(1, REQ_FUENTE.length);
+  const list = REQ_FUENTE.map((row, index) => {
+    const early = buildEarlyStages(row);
+    return assembleRequirement({
+      nombre: row.nombre,
+      area: row.area,
+      early,
+      desarrollo: null,
+      estadoDoc: row.estado,
+      estadoDev: null,
+      index,
+      total: totalHint,
+    });
+  });
+  applyKnownStageProgress(list);
+  mergeProdListosInto(list);
+
+  REQ_FUENTE = list.map((req) => {
+    const lev = req.etapas?.levantamiento;
+    const doc = req.etapas?.documento;
+    return {
+      nombre: req.nombre,
+      area: req.area,
+      inicio: lev?.planInicio || doc?.planInicio || todayIso(),
+      fin: doc?.planFin || lev?.planFin || todayIso(),
+      estado: req.estadoDoc || req.estadoFuente || "Pendiente",
+    };
+  });
+  DEV_FUENTE = [];
+  stageEdits = snapshotStageEditsFromReqs(list);
+  reqOrder = list.map((r) => normName(r.nombre));
+  window.__linkprojectUserOwnedData = true;
+  window.__linkprojectDesignSourceSanitized = true;
 }
 
 function refreshAppFromData() {
@@ -2725,6 +2812,9 @@ function saveReqEditor(reqId, form) {
   });
 
   saveStageEdits();
+  if (typeof window.__linkprojectPersistNow === "function") {
+    window.__linkprojectPersistNow();
+  }
   const listo = isReqListo(req);
   const wasListos = detailBucket === "listos";
   detailBucket = listo ? "listos" : "curso";
@@ -3197,6 +3287,7 @@ document.getElementById("btnResetData").addEventListener("click", () => {
     stageEdits = {};
     reqOrder = [];
     customStages = [];
+    window.__linkprojectUserOwnedData = true;
     saveFuentes();
     saveStageEdits();
     saveReqOrder();
@@ -3204,17 +3295,18 @@ document.getElementById("btnResetData").addEventListener("click", () => {
     rebuildStagesList();
     closeStageDrawer();
     refreshAppFromData();
+    if (typeof window.__linkprojectPersistNow === "function") window.__linkprojectPersistNow();
     showToast("Tablero vacío · agrega desde Detalle", "ok");
     return;
   }
 
-  if (!confirm("¿Restaurar los datos de ejemplo y reemplazar lo cargado?")) return;
+  if (!confirm("¿Restaurar la base inicial y reemplazar lo cargado? Luego podrás editar/borrar con normalidad.")) return;
   REQ_FUENTE = cloneFuente(DEFAULT_REQ_FUENTE);
   DEV_FUENTE = cloneFuente(DEFAULT_DEV_FUENTE);
   stageEdits = {};
   reqOrder = [];
   customStages = [];
-  window.__linkprojectDesignSourceSanitized = true;
+  materializeLiskeylaBaselineToOwnedData();
   saveFuentes();
   saveStageEdits();
   saveReqOrder();
@@ -3222,7 +3314,8 @@ document.getElementById("btnResetData").addEventListener("click", () => {
   rebuildStagesList();
   closeStageDrawer();
   refreshAppFromData();
-  showToast("Datos de ejemplo restaurados", "ok");
+  if (typeof window.__linkprojectPersistNow === "function") window.__linkprojectPersistNow();
+  showToast("Base restaurada en tu espacio (editable en base de datos)", "ok");
 });
 
 /* Init — espera datos remotos vía auth-bridge (__linkprojectApplyRemote) */
@@ -3256,33 +3349,27 @@ function prodListosAsFuenteRows() {
 window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
   const payload = data || {};
   const seedDefaults = !!options.seedDefaults;
+  const alreadyOwned = !!payload.userOwnedData;
 
   if (typeof options.includeProdCatalog === "boolean") {
     window.__linkprojectIncludeProdCatalog = options.includeProdCatalog;
   }
+  window.__linkprojectUserOwnedData = alreadyOwned;
 
-  // Solo Liskeyla recibe la base de ejemplo; María siempre parte de su workspace (vacío o lo que guarde)
-  if (seedDefaults && isLiskeylaUser()) {
+  // Solo Liskeyla puede recibir seed inicial; María siempre su workspace
+  if (seedDefaults && isLiskeylaUser() && !alreadyOwned) {
     REQ_FUENTE = cloneFuente(DEFAULT_REQ_FUENTE);
     DEV_FUENTE = cloneFuente(DEFAULT_DEV_FUENTE);
     stageEdits = {};
     reqOrder = [];
     customStages = [];
-    window.__linkprojectDesignSourceSanitized = true;
     rebuildStagesList();
   } else {
     REQ_FUENTE = Array.isArray(payload.doc) ? payload.doc.map((r) => ({ ...r })) : [];
     DEV_FUENTE = Array.isArray(payload.dev) ? payload.dev.map((r) => ({ ...r })) : [];
-    const rawEdits =
-      payload.stageEdits && typeof payload.stageEdits === "object" ? payload.stageEdits : {};
-    // Limpieza de estimaciones viejas: solo Liskeyla (una vez)
-    if (isLiskeylaUser() && !payload.designSourceSanitized) {
-      stageEdits = sanitizeStageEditsKeepDesignSource(rawEdits);
-      window.__linkprojectDesignSourceSanitized = true;
-    } else {
-      stageEdits = rawEdits;
-      window.__linkprojectDesignSourceSanitized = true;
-    }
+    // Datos del usuario: respetar stageEdits completos (sin recortar etapas)
+    stageEdits =
+      payload.stageEdits && typeof payload.stageEdits === "object" ? { ...payload.stageEdits } : {};
     reqOrder = Array.isArray(payload.reqOrder) ? payload.reqOrder.slice() : [];
     customStages = Array.isArray(payload.customStages)
       ? payload.customStages
@@ -3300,9 +3387,17 @@ window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
   if (payload.decisionGlobal) {
     state.decisionGlobal = payload.decisionGlobal;
     applyDecisionUi(payload.decisionGlobal);
-  } else if (!(seedDefaults && isLiskeylaUser())) {
+  } else if (!(seedDefaults && isLiskeylaUser() && !alreadyOwned)) {
     state.decisionGlobal = null;
   }
+
+  // Migración única Liskeyla: código → base de datos; luego nunca más se reinyecta
+  if (isLiskeylaUser() && !alreadyOwned) {
+    materializeLiskeylaBaselineToOwnedData();
+  } else {
+    window.__linkprojectUserOwnedData = true;
+  }
+  window.__linkprojectDesignSourceSanitized = true;
 
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ doc: REQ_FUENTE, dev: DEV_FUENTE }));
@@ -3315,8 +3410,9 @@ window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
 
   refreshAppFromData();
 
-  if (typeof window.__linkprojectSchedulePersist === "function") {
-    window.__linkprojectSchedulePersist();
+  // La persistencia la hace auth-bridge al terminar de hidratar (hydrated=true)
+  if (isLiskeylaUser() && !alreadyOwned) {
+    showToast("Datos migrados a tu base. Desde ahora editar/borrar se guarda y se respeta.", "ok");
   }
 };
 
@@ -3342,6 +3438,9 @@ function deleteRequirement(reqId) {
   saveReqOrder();
   closeStageDrawer();
   refreshAppFromData();
+  if (typeof window.__linkprojectPersistNow === "function") {
+    window.__linkprojectPersistNow();
+  }
   showToast(`"${req.nombre}" eliminado`, "ok");
 }
 
