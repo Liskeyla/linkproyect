@@ -1,6 +1,6 @@
 /**
  * Puente de autenticación y persistencia remota (API /api/workspace).
- * Reemplaza localStorage por base de datos compartida entre usuarios.
+ * Cada usuario tiene su propio workspace en base de datos.
  */
 (function () {
   let currentUser = null;
@@ -30,6 +30,11 @@
       if (el) el.disabled = !write;
     });
 
+    document.querySelectorAll("[data-delete-req]").forEach((btn) => {
+      btn.disabled = !write;
+      btn.hidden = !write;
+    });
+
     if (!canDecide()) {
       document.querySelectorAll(".mini-actions button, #decisionForm button[type='submit']").forEach((btn) => {
         btn.disabled = true;
@@ -53,7 +58,6 @@
     if (!canWrite() && !canDecide()) return;
 
     const payload = buildPayload();
-    // Gerencia: el API solo aplica decisionGlobal
     const body =
       currentUser?.role === "gerencia" && !canWrite()
         ? { decisionGlobal: payload.decisionGlobal }
@@ -90,21 +94,6 @@
     }, 450);
   }
 
-  // Parchea las funciones de guardado locales para que también sincronicen al servidor
-  function patchSavers() {
-    const wrap = (name) => {
-      const original = window[name];
-      if (typeof original !== "function") return;
-      window[name] = function patchedSaver() {
-        const result = original.apply(this, arguments);
-        schedulePersist();
-        return result;
-      };
-    };
-
-    // Las funciones viven en scope de app.js (no window). Se sobreescriben vía hooks internos.
-  }
-
   async function hydrateFromServer() {
     const res = await fetch("/api/workspace");
     if (res.status === 401) {
@@ -122,19 +111,16 @@
     }
 
     const data = json.data || {};
+    const seedDefaults = !!json.seedDefaults;
 
-    // Inyecta en las variables globales del app (declaradas con let en app.js → no están en window)
-    // Por eso app.js expone __linkprojectApplyRemote
     if (typeof window.__linkprojectApplyRemote === "function") {
-      window.__linkprojectApplyRemote(data);
+      window.__linkprojectApplyRemote(data, { seedDefaults });
     }
 
     applyReadonlyUi();
     hydrated = true;
 
-    // Primera vez: si el servidor está vacío, sube los datos de ejemplo locales
-    const empty = !(data.doc && data.doc.length) && !(data.dev && data.dev.length);
-    if (empty && canWrite()) {
+    if (seedDefaults && canWrite()) {
       schedulePersist();
     }
     return true;
@@ -142,7 +128,6 @@
 
   document.getElementById("btnLogout")?.addEventListener("click", async () => {
     await fetch("/api/auth/signout", { method: "POST" }).catch(() => null);
-    // next-auth también acepta GET a signout; usamos form POST estándar
     const form = document.createElement("form");
     form.method = "POST";
     form.action = "/api/auth/signout";
@@ -168,7 +153,6 @@
   window.__linkprojectCanWrite = canWrite;
   window.__linkprojectGetUser = () => currentUser;
 
-  // Espera a que app.js registre el apply hook
   function boot() {
     if (typeof window.__linkprojectApplyRemote !== "function") {
       setTimeout(boot, 30);

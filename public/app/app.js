@@ -957,8 +957,8 @@ function assembleRequirement({ nombre, area, early, desarrollo, estadoDoc, estad
   };
 }
 
-let REQ_FUENTE = cloneFuente(DEFAULT_REQ_FUENTE);
-let DEV_FUENTE = cloneFuente(DEFAULT_DEV_FUENTE);
+let REQ_FUENTE = [];
+let DEV_FUENTE = [];
 let requerimientos = [];
 let stageEdits = {};
 let reqOrder = [];
@@ -1961,6 +1961,7 @@ function renderDetail() {
               <button type="button" class="ok" data-action="aprobado">Aprobar</button>
               <button type="button" class="warn" data-action="mejoras">Mejoras</button>
               <button type="button" class="bad" data-action="rechazado">Rechazar</button>
+              <button type="button" class="del" data-delete-req="${r.id}" title="Eliminar requerimiento">Borrar</button>
             </div>
             <div class="req-status ${r.decision}">${labelDecision(r.decision)}</div>
           </td>
@@ -2091,6 +2092,7 @@ function openReqEditor(reqId, focusStageKey) {
     <div class="drawer-actions-main">
       <button type="submit" form="reqEditForm" class="btn primary" id="btnSaveEdit">Guardar cambios</button>
       <button type="button" class="btn ghost" id="btnCancelEdit">Cerrar</button>
+      <button type="button" class="btn danger" id="btnDeleteReq" data-delete-req="${req.id}">Eliminar requerimiento</button>
     </div>
     <div class="drawer-actions-secondary">
       <button type="button" class="btn ghost" data-action="aprobado" data-req="${req.id}">Aprobar</button>
@@ -2106,6 +2108,8 @@ function openReqEditor(reqId, focusStageKey) {
   });
 
   document.getElementById("btnCancelEdit")?.addEventListener("click", closeStageDrawer);
+  document.getElementById("btnDeleteReq")?.addEventListener("click", () => deleteRequirement(reqId));
+
 
   if (focusStageKey) {
     requestAnimationFrame(() => {
@@ -2400,6 +2404,14 @@ detailTbody.addEventListener("click", (e) => {
     return;
   }
 
+  const deleteBtn = e.target.closest("[data-delete-req]");
+  if (deleteBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    deleteRequirement(Number(deleteBtn.dataset.deleteReq));
+    return;
+  }
+
   const decisionBtn = e.target.closest("button[data-action]");
   if (decisionBtn) {
     const tr = decisionBtn.closest("tr");
@@ -2622,37 +2634,43 @@ function applyDecisionUi(decision) {
   if (strong) strong.textContent = m.text;
 }
 
-window.__linkprojectApplyRemote = function applyRemote(data) {
+window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
   const payload = data || {};
-  if (Array.isArray(payload.doc) && Array.isArray(payload.dev)) {
-    if (payload.doc.length || payload.dev.length) {
-      REQ_FUENTE = payload.doc.map((r) => ({ ...r }));
-      DEV_FUENTE = payload.dev.map((r) => ({ ...r }));
-    }
-  }
-  if (payload.stageEdits && typeof payload.stageEdits === "object") {
-    stageEdits = payload.stageEdits;
-  }
-  if (Array.isArray(payload.reqOrder)) {
-    reqOrder = payload.reqOrder.slice();
-  }
-  if (Array.isArray(payload.customStages)) {
-    customStages = payload.customStages
-      .filter((s) => s && s.key && s.label)
-      .map((s) => ({
-        key: String(s.key),
-        label: String(s.label),
-        group: s.group || "default",
-        custom: true,
-      }));
+  const seedDefaults = !!options.seedDefaults;
+
+  if (seedDefaults) {
+    REQ_FUENTE = cloneFuente(DEFAULT_REQ_FUENTE);
+    DEV_FUENTE = cloneFuente(DEFAULT_DEV_FUENTE);
+    stageEdits = {};
+    reqOrder = [];
+    customStages = [];
+    rebuildStagesList();
+  } else {
+    REQ_FUENTE = Array.isArray(payload.doc) ? payload.doc.map((r) => ({ ...r })) : [];
+    DEV_FUENTE = Array.isArray(payload.dev) ? payload.dev.map((r) => ({ ...r })) : [];
+    stageEdits =
+      payload.stageEdits && typeof payload.stageEdits === "object" ? payload.stageEdits : {};
+    reqOrder = Array.isArray(payload.reqOrder) ? payload.reqOrder.slice() : [];
+    customStages = Array.isArray(payload.customStages)
+      ? payload.customStages
+          .filter((s) => s && s.key && s.label)
+          .map((s) => ({
+            key: String(s.key),
+            label: String(s.label),
+            group: s.group || "default",
+            custom: true,
+          }))
+      : [];
     rebuildStagesList();
   }
+
   if (payload.decisionGlobal) {
     state.decisionGlobal = payload.decisionGlobal;
     applyDecisionUi(payload.decisionGlobal);
+  } else if (!seedDefaults) {
+    state.decisionGlobal = null;
   }
 
-  // Cache local de respaldo
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ doc: REQ_FUENTE, dev: DEV_FUENTE }));
     localStorage.setItem(STAGE_EDITS_KEY, JSON.stringify(stageEdits));
@@ -2665,6 +2683,31 @@ window.__linkprojectApplyRemote = function applyRemote(data) {
   refreshAppFromData();
 };
 
+function deleteRequirement(reqId) {
+  if (typeof window.__linkprojectCanWrite === "function" && !window.__linkprojectCanWrite()) {
+    showToast("No tienes permiso para borrar", "warn");
+    return;
+  }
+  const req = requerimientos.find((r) => r.id === reqId);
+  if (!req) return;
+  if (!confirm(`¿Eliminar el requerimiento "${req.nombre}"? Esta acción se guarda en la base de datos.`)) {
+    return;
+  }
+
+  const key = normName(req.nombre);
+  REQ_FUENTE = REQ_FUENTE.filter((r) => !namesMatch(r.nombre, req.nombre));
+  DEV_FUENTE = DEV_FUENTE.filter((r) => !namesMatch(r.nombre, req.nombre));
+  if (stageEdits[key]) delete stageEdits[key];
+  reqOrder = reqOrder.filter((k) => k !== key && !namesMatch(k, req.nombre));
+
+  saveFuentes();
+  saveStageEdits();
+  saveReqOrder();
+  closeStageDrawer();
+  refreshAppFromData();
+  showToast(`"${req.nombre}" eliminado`, "ok");
+}
+
 (function init() {
   const hoy = new Date();
   document.getElementById("fechaCorte").textContent = hoy.toLocaleDateString("es-EC", {
@@ -2673,10 +2716,7 @@ window.__linkprojectApplyRemote = function applyRemote(data) {
     year: "numeric",
   });
   document.getElementById("fechaDecision").value = hoy.toISOString().slice(0, 10);
-  // Datos de ejemplo locales hasta que el bridge hidrate desde el servidor
-  loadCustomStages();
-  loadFuentes();
-  loadStageEdits();
-  loadReqOrder();
+  // Vacío hasta hidratar el workspace del usuario desde el servidor
+  rebuildStagesList();
   refreshAppFromData();
 })();

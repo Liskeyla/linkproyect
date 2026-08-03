@@ -12,49 +12,111 @@ const EMPTY_PAYLOAD = {
   decisionGlobal: null,
 };
 
-export async function GET() {
+const LISKEYLA_EMAIL = "lmacias@awenandwis.com";
+
+function workspaceIdFor(userId: string) {
+  return `user:${userId}`;
+}
+
+function parsePayload(raw: string) {
+  try {
+    return { ...EMPTY_PAYLOAD, ...JSON.parse(raw) };
+  } catch {
+    return { ...EMPTY_PAYLOAD };
+  }
+}
+
+function hasFuenteData(data: typeof EMPTY_PAYLOAD) {
+  return (data.doc?.length || 0) + (data.dev?.length || 0) > 0;
+}
+
+async function getSessionUser() {
   const session = await getServerSession(authOptions);
-  if (!session?.user) {
+  if (!session?.user) return null;
+  const id = (session.user as { id?: string }).id;
+  if (!id) return null;
+  return {
+    id,
+    email: (session.user.email || "").toLowerCase(),
+    name: session.user.name,
+    role: (session.user as { role?: string }).role || "viewer",
+  };
+}
+
+/**
+ * Cada usuario tiene su propio workspace.
+ * - Liskeyla: conserva base (migra "default" si existe) o pide seed de ejemplo en el cliente.
+ * - María y demás: empiezan vacíos para armar desde cero.
+ */
+async function getOrCreateUserWorkspace(user: {
+  id: string;
+  email: string;
+}) {
+  const id = workspaceIdFor(user.id);
+  let workspace = await prisma.workspace.findUnique({ where: { id } });
+  let seedDefaults = false;
+
+  if (workspace) {
+    return { workspace, seedDefaults: false };
+  }
+
+  let payload = { ...EMPTY_PAYLOAD };
+
+  if (user.email === LISKEYLA_EMAIL) {
+    const shared = await prisma.workspace.findUnique({ where: { id: "default" } });
+    if (shared) {
+      const sharedData = parsePayload(shared.payload);
+      if (hasFuenteData(sharedData)) {
+        payload = sharedData;
+      } else {
+        seedDefaults = true;
+      }
+    } else {
+      seedDefaults = true;
+    }
+  }
+
+  workspace = await prisma.workspace.create({
+    data: {
+      id,
+      payload: JSON.stringify(payload),
+      updatedBy: user.email || null,
+    },
+  });
+
+  return { workspace, seedDefaults };
+}
+
+export async function GET() {
+  const user = await getSessionUser();
+  if (!user) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
 
-  let workspace = await prisma.workspace.findUnique({ where: { id: "default" } });
-  if (!workspace) {
-    workspace = await prisma.workspace.create({
-      data: {
-        id: "default",
-        payload: JSON.stringify(EMPTY_PAYLOAD),
-      },
-    });
-  }
-
-  let data = EMPTY_PAYLOAD;
-  try {
-    data = { ...EMPTY_PAYLOAD, ...JSON.parse(workspace.payload) };
-  } catch {
-    data = EMPTY_PAYLOAD;
-  }
+  const { workspace, seedDefaults } = await getOrCreateUserWorkspace(user);
+  const data = parsePayload(workspace.payload);
 
   return NextResponse.json({
     data,
+    seedDefaults,
     updatedAt: workspace.updatedAt,
     updatedBy: workspace.updatedBy,
     user: {
-      name: session.user.name,
-      email: session.user.email,
-      role: (session.user as { role?: string }).role || "viewer",
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
     },
   });
 }
 
 export async function PUT(req: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
+  const user = await getSessionUser();
+  if (!user) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
 
-  const role = (session.user as { role?: string }).role;
-  if (!canWrite(role) && role !== "gerencia") {
+  if (!canWrite(user.role) && user.role !== "gerencia") {
     return NextResponse.json(
       { error: "Tu rol solo permite lectura. Pide acceso de editor o gerencia." },
       { status: 403 }
@@ -66,21 +128,16 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Payload inválido" }, { status: 400 });
   }
 
-  // Viewer no escribe; gerencia solo puede decidir; editor/admin todo
-  const existing = await prisma.workspace.findUnique({ where: { id: "default" } });
+  const id = workspaceIdFor(user.id);
+  const existing = await prisma.workspace.findUnique({ where: { id } });
   let current = EMPTY_PAYLOAD;
   if (existing) {
-    try {
-      current = { ...EMPTY_PAYLOAD, ...JSON.parse(existing.payload) };
-    } catch {
-      current = EMPTY_PAYLOAD;
-    }
+    current = parsePayload(existing.payload);
   }
 
   let next = { ...current };
 
-  if (role === "gerencia") {
-    // Solo decisión global y (opcional) stageEdits si queremos; limitamos a decision
+  if (user.role === "gerencia" && !canWrite(user.role)) {
     next = {
       ...current,
       decisionGlobal: body.decisionGlobal ?? current.decisionGlobal,
@@ -97,15 +154,15 @@ export async function PUT(req: Request) {
   }
 
   const workspace = await prisma.workspace.upsert({
-    where: { id: "default" },
+    where: { id },
     create: {
-      id: "default",
+      id,
       payload: JSON.stringify(next),
-      updatedBy: session.user.email || session.user.name || null,
+      updatedBy: user.email || user.name || null,
     },
     update: {
       payload: JSON.stringify(next),
-      updatedBy: session.user.email || session.user.name || null,
+      updatedBy: user.email || user.name || null,
     },
   });
 

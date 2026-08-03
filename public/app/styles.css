@@ -2227,6 +2227,31 @@ tr.req-row-active .req-cell {
   color: var(--navy);
 }
 
+.btn.danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid #efb8b2;
+}
+
+.btn.danger:hover {
+  background: #fad2ce;
+}
+
+.mini-actions .del {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid #efb8b2;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mini-actions .del:hover {
+  background: #fad2ce;
+}
+
 .decision-result {
   margin-top: 14px;
   padding: 12px 14px;
