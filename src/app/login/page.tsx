@@ -116,14 +116,6 @@ export default function LoginPage() {
             {loading ? "Espera…" : mode === "login" ? "Entrar" : "Registrarme y entrar"}
           </button>
         </form>
-
-        <div className="hint">
-          <strong>Usuarios</strong>
-          <ul>
-            <li>lmacias@awenandwis.com / Liskeyla2026</li>
-            <li>mpluas@awenandwis.com / Maria2026</li>
-          </ul>
-        </div>
       </section>
     </main>
   );
