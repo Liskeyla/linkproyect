@@ -197,6 +197,20 @@ body.is-readonly #btnGoDetalle {
   border-radius: 12px;
   padding: 12px 14px;
   backdrop-filter: blur(6px);
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+
+button.kpi-link {
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+
+button.kpi-link:hover {
+  background: rgba(255,255,255,0.2);
+  border-color: rgba(255,255,255,0.35);
+  transform: translateY(-1px);
 }
 
 .kpi span {
@@ -210,6 +224,15 @@ body.is-readonly #btnGoDetalle {
 .kpi strong {
   font-size: 1.45rem;
   font-weight: 700;
+}
+
+.kpi small {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.68rem;
+  opacity: 0.72;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .tabs {

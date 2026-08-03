@@ -1482,13 +1482,31 @@ function renderKpis() {
   const total = PANORAMA_TOTAL.total;
   const enProd = PANORAMA_TOTAL.produccion.count;
   const enDiseno = PANORAMA_TOTAL.diseno.count;
-  const weightedProd = weightedStagePct("produccion");
+  const enDev = PANORAMA_TOTAL.desarrollo.count;
+  const enQa = PANORAMA_TOTAL.qa.count;
+  const weightedProd = PANORAMA_TOTAL.produccion.pct ?? 0;
 
   document.getElementById("kpiGrid").innerHTML = `
-    <div class="kpi"><span>Total en seguimiento</span><strong>${total}</strong></div>
-    <div class="kpi"><span>Ya en producción</span><strong>${enProd}</strong></div>
-    <div class="kpi"><span>En diseño</span><strong>${enDiseno}</strong></div>
-    <div class="kpi"><span>% avance producción</span><strong>${formatPct(weightedProd)}</strong></div>
+    <button type="button" class="kpi kpi-link" data-kpi="total" title="Ver todos en Detalle">
+      <span>Total en seguimiento</span>
+      <strong>${total}</strong>
+      <small>Desde Detalle</small>
+    </button>
+    <button type="button" class="kpi kpi-link" data-kpi="produccion" title="Ver listos / producción">
+      <span>Ya en producción</span>
+      <strong>${enProd}</strong>
+      <small>Etapa producción</small>
+    </button>
+    <button type="button" class="kpi kpi-link" data-kpi="diseno" title="Ver en Detalle · Diseño">
+      <span>En diseño</span>
+      <strong>${enDiseno}</strong>
+      <small>Lev. · Proto. · Doc.</small>
+    </button>
+    <button type="button" class="kpi kpi-link" data-kpi="avance" title="Avance de los que están en producción">
+      <span>% avance producción</span>
+      <strong>${formatPct(weightedProd)}</strong>
+      <small>Dev ${enDev} · QA ${enQa}</small>
+    </button>
   `;
 }
 
@@ -1505,10 +1523,16 @@ function weightedStagePct(stageKey) {
   return Math.round((sum / weight) * 10) / 10;
 }
 
-/** Buckets del panorama derivados del detalle */
+/**
+ * Columnas del Panorama ↔ etapas del Detalle:
+ * - Diseño → Levantamiento, Prototipado, Documento funcional
+ * - Desarrollo IT → Diseño visual, Desarrollo
+ * - Pruebas QA → Etapa QA, Pruebas QA Usuario Proyecto, Pruebas completas
+ * - Producción → Etapa producción
+ */
 const PANORAMA_STAGES = [
-  { key: "diseno", label: "Diseño", stageKeys: ["disenoVisual", "documento", "prototipado", "levantamiento"] },
-  { key: "desarrollo", label: "Desarrollo IT", stageKeys: ["desarrollo"] },
+  { key: "diseno", label: "Diseño", stageKeys: ["levantamiento", "prototipado", "documento"] },
+  { key: "desarrollo", label: "Desarrollo IT", stageKeys: ["disenoVisual", "desarrollo"] },
   { key: "qa", label: "Pruebas QA", stageKeys: ["qa", "procesos", "pruebasCompletas"] },
   { key: "produccion", label: "Producción", stageKeys: ["produccion"] },
 ];
@@ -1529,11 +1553,13 @@ function stageHasActivity(et) {
 }
 
 function pickStageForBucket(req, stageKeys) {
+  // Última etapa del grupo con fechas (la más avanzada dentro de la columna)
+  let found = null;
   for (const key of stageKeys) {
     const et = req.etapas?.[key];
-    if (stageHasActivity(et)) return et;
+    if (stageHasActivity(et)) found = et;
   }
-  return null;
+  return found;
 }
 
 /**
@@ -1541,16 +1567,13 @@ function pickStageForBucket(req, stageKeys) {
  * (la etapa más avanzada con fechas), y se agrupa por su Área del Detalle.
  */
 function resolvePanoramaBucket(req) {
-  const order = [
-    { key: "produccion", stageKeys: ["produccion"] },
-    { key: "qa", stageKeys: ["qa", "procesos", "pruebasCompletas"] },
-    { key: "desarrollo", stageKeys: ["desarrollo"] },
-    { key: "diseno", stageKeys: ["disenoVisual", "documento", "prototipado", "levantamiento"] },
-  ];
+  if (isReqListo(req)) {
+    return { bucket: "produccion", et: pickStageForBucket(req, ["produccion"]) || req.etapas?.produccion || null };
+  }
 
-  if (isReqListo(req)) return { bucket: "produccion", et: req.etapas?.produccion || null };
-
-  for (const item of order) {
+  // De más avanzada a más temprana, según el mapeo Detalle → Panorama
+  for (let i = PANORAMA_STAGES.length - 1; i >= 0; i -= 1) {
+    const item = PANORAMA_STAGES[i];
     const et = pickStageForBucket(req, item.stageKeys);
     if (et) return { bucket: item.key, et };
   }
@@ -2468,6 +2491,29 @@ function activateTab(id) {
   if (id === "decision") renderDecisionSummary();
   if (id === "cronograma") renderCronograma();
 }
+
+function openDetalleFromKpi(kind) {
+  activateTab("detalle");
+  if (kind === "produccion") {
+    setDetailBucket("listos");
+  } else {
+    setDetailBucket("curso");
+  }
+  clearDetailFilters();
+  const hint =
+    kind === "diseno"
+      ? "Diseño = Levantamiento + Prototipado + Doc. funcional"
+      : kind === "produccion"
+        ? "Viendo listos en producción"
+        : "Totales del Detalle";
+  showToast(hint, "ok");
+}
+
+document.getElementById("kpiGrid")?.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-kpi]");
+  if (!btn) return;
+  openDetalleFromKpi(btn.dataset.kpi);
+});
 
 document.querySelectorAll(".tab[data-tab]").forEach((btn) => {
   btn.addEventListener("click", () => activateTab(btn.dataset.tab));
