@@ -528,6 +528,126 @@ const DEV_STAGE_DATES = [
   { nombre: "Transmisión de booking de SBM/Nautic", area: "Reefer (Máquina)", inicio: "2026-06-09", fin: "2026-07-21", estado: "En Proceso" },
 ];
 
+/** Desarrollo Listo: repartir entre Diseño visual + Desarrollo (plan = real) */
+const DEV_LISTO_DATES = [
+  { nombre: "Requerimiento de Módulo de Portería V5", area: "Operaciones", inicio: "2024-07-15", fin: "2024-07-15" },
+  { nombre: "Sistema de Bloqueos de Turnos Administrativo", area: "Reefer (Máquina)", inicio: "2024-07-16", fin: "2024-08-14" },
+  { nombre: "Liquidaciones V4", area: "Liquidaciones", inicio: "2024-07-24", fin: "2024-07-24" },
+  { nombre: "Módulo Monitor de Servicios Part 1", area: "Operaciones", inicio: "2024-07-31", fin: "2024-08-23" },
+  { nombre: "Reparación de autoaprobaciones (SBM)", area: "Reefer (Máquina)", inicio: "2024-07-31", fin: "2024-08-06" },
+  {
+    nombre: "Automatizar campos de Exportación (Exportador, Nave, Itinerario) mediante Turno",
+    area: "Operaciones",
+    inicio: "2024-08-23",
+    fin: "2024-08-23",
+  },
+  { nombre: "Módulo Monitor de Servicios Part 1.2", area: "Operaciones", inicio: "2024-09-27", fin: "2024-09-30" },
+  { nombre: "Mejoras en Sistemas de Turnos", area: "Operaciones", inicio: "2024-10-14", fin: "2024-11-12" },
+  { nombre: "Preasignación/Bloqueo de Contenedores bajo Booking", area: "Operaciones", inicio: "2024-11-01", fin: "2024-11-26" },
+  {
+    nombre: "Reparaciones en Despachos y Generado de Estimados",
+    area: "R&D (Recepción y Despacho)",
+    inicio: "2024-11-20",
+    fin: "2024-12-10",
+  },
+  { nombre: "App Estimación de Asistencias Técnicas", area: "Reefer (Máquina)", inicio: "2024-11-27", fin: "2025-01-09" },
+  { nombre: "Reportería de Asistencias Técnicas", area: "Reportería", inicio: "2024-11-27", fin: "2024-12-23" },
+  { nombre: 'Proceso TO BE "Prueba de Luz"', area: "Operaciones", inicio: "2024-11-29", fin: "2025-02-19" },
+  { nombre: "Turnos de Reposición y Evacuación", area: "Operaciones", inicio: "2025-01-15", fin: "2025-06-04" },
+  { nombre: "Mejoras Proceso de Seteo de Contenedores", area: "Reefer (Máquina)", inicio: "2025-01-23", fin: "2025-01-23" },
+  { nombre: "Control automático despacho de contenedores operativos", area: "Operaciones", inicio: "2025-02-10", fin: "2025-05-21" },
+  { nombre: "Reporte por Componentes", area: "Reportería", inicio: "2025-02-26", fin: "2025-06-04" },
+  { nombre: "Cero papel", area: "Operaciones", inicio: "2025-03-14", fin: "2025-04-15" },
+  { nombre: "Usuario Máster-Portal de Turnos", area: "Operaciones", inicio: "2025-03-25", fin: "2025-03-26" },
+  {
+    nombre: "RnD - Inclusión de tiempos de inicio y fin de inspección",
+    area: "R&D (Recepción y Despacho)",
+    inicio: "2025-04-01",
+    fin: "2025-04-04",
+  },
+  { nombre: "Maqueta de Desarrollo de Destiempos", area: "Operaciones", inicio: "2025-04-29", fin: "2025-05-28" },
+  { nombre: "Sellos y Precintos V1", area: "Operaciones", inicio: "2025-06-04", fin: "2025-06-11" },
+  { nombre: "Portería Web (2.0)", area: "Operaciones", inicio: "2025-06-11", fin: "2025-06-18" },
+  { nombre: "Transmisión de Booking One al DMS", area: "Operaciones", inicio: "2025-07-23", fin: "2025-07-28" },
+  { nombre: "Reporte por Componentes V2", area: "Reportería", inicio: "2025-08-06", fin: "2025-08-08" },
+  { nombre: "Solicitud de Actualización DMS-Liquidaciones V1", area: "Liquidaciones", inicio: "2025-08-18", fin: "2025-09-24" },
+  { nombre: "Autoaprobación Daikin", area: "Liquidaciones", inicio: "2025-10-03", fin: "2025-10-07" },
+  {
+    nombre: "Códigos de partes de Contenedores bajo normas IICL",
+    area: "Estructura (Box)",
+    inicio: "2025-11-05",
+    fin: "2025-11-26",
+  },
+  { nombre: "Solicitud de actualización en DMS — Liquidaciones V2", area: "Liquidaciones", inicio: "2025-11-19", fin: "2025-11-28" },
+  {
+    nombre: "Documento Anexos Autoaprobación Daikin y Solicitud de Act. DMS Liquidaciones V2",
+    area: "Liquidaciones",
+    inicio: "2025-12-02",
+    fin: "2025-12-19",
+  },
+  { nombre: "Proyecto Servidor Réplica", area: "Reportería", inicio: "2025-12-15", fin: "2025-12-19" },
+  { nombre: "Turnos de Reposición y Evacuación V2", area: "Operaciones", inicio: "2026-01-15", fin: "2026-02-05" },
+  {
+    nombre: "Aplicativo móvil para turnos de evacuación y reposición para choferes",
+    area: "Operaciones",
+    inicio: "2026-03-23",
+    fin: "2026-05-04",
+  },
+  {
+    nombre: "Ajuste de identificados en fase QA para DMS Liquidaciones V2 y Autoaprobaciones Daikin",
+    area: "Liquidaciones",
+    inicio: "2026-05-08",
+    fin: "2026-05-16",
+  },
+  { nombre: "Marca de agua DMS", area: "Operaciones", inicio: "2026-05-13", fin: "2026-05-19" },
+  { nombre: "Anexo de turnos de Evacuación y Reposición V2", area: "Operaciones", inicio: "2026-06-09", fin: "2026-07-07" },
+];
+
+function splitRangeIntoParts(inicio, fin, parts) {
+  let a = parseDate(inicio);
+  let b = parseDate(fin);
+  if (!a || !b) return null;
+  if (b < a) [a, b] = [b, a];
+  const startIso = toIso(a);
+  const total = daysBetween(a, b);
+  const n = Math.max(1, parts);
+  if (total <= 0) {
+    return Array.from({ length: n }, () => ({ inicio: startIso, fin: startIso }));
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const from = Math.round((total * i) / n);
+    const to = Math.round((total * (i + 1)) / n);
+    out.push({
+      inicio: addDaysIso(startIso, from),
+      fin: addDaysIso(startIso, to),
+    });
+  }
+  return out;
+}
+
+/** Reparte el tiempo de desarrollo Listo en Diseño visual + Desarrollo (plan = real) */
+function applyDevListoSplit(req, inicio, fin) {
+  const segs = splitRangeIntoParts(inicio, fin, 2);
+  if (!segs) return;
+  const keys = ["disenoVisual", "desarrollo"];
+  const labels = ["Diseño visual", "Desarrollo"];
+  keys.forEach((key, i) => {
+    const seg = segs[i];
+    const resp = req.etapas?.[key]?.responsable || responsableEtapa(key);
+    req.etapas[key] = stage(
+      seg.inicio,
+      seg.fin,
+      seg.inicio,
+      seg.fin,
+      resp,
+      `${labels[i]} · Listo (plan = real)`
+    );
+  });
+  req.estadoDev = "Listo";
+  req.estadoFuente = "Listo";
+}
+
 function findReqByName(list, nombre) {
   return list.find((r) => namesMatch(r.nombre, nombre)) || null;
 }
@@ -613,6 +733,13 @@ function applyKnownStageProgress(list) {
     );
     req.estadoDev = item.estado;
     req.estadoFuente = item.estado;
+    if (item.area) req.area = item.area;
+  });
+
+  // Listos de desarrollo: reparto Diseño visual + Desarrollo (plan = real)
+  DEV_LISTO_DATES.forEach((item) => {
+    const req = ensureReqFromProgress(list, item, "Listo");
+    applyDevListoSplit(req, item.inicio, item.fin);
     if (item.area) req.area = item.area;
   });
 }
