@@ -32,12 +32,19 @@ function hasFuenteData(data: typeof EMPTY_PAYLOAD) {
 
 async function getSessionUser() {
   const session = await getServerSession(authOptions);
-  if (!session?.user) return null;
-  const id = (session.user as { id?: string }).id;
-  if (!id) return null;
+  if (!session?.user?.email) return null;
+
+  const email = session.user.email.toLowerCase();
+  let id = (session.user as { id?: string }).id;
+  if (!id) {
+    const dbUser = await prisma.user.findUnique({ where: { email } });
+    if (!dbUser) return null;
+    id = dbUser.id;
+  }
+
   return {
     id,
-    email: (session.user.email || "").toLowerCase(),
+    email,
     name: session.user.name,
     role: (session.user as { role?: string }).role || "viewer",
   };
