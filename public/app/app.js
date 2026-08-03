@@ -1,0 +1,2682 @@
+const BASE_STAGES = [
+  { key: "levantamiento", label: "Levantamiento", group: "proyectos" },
+  { key: "prototipado", label: "Prototipado", group: "proyectos" },
+  { key: "documento", label: "Documento funcional", group: "proyectos" },
+  { key: "aprobacion", label: "Aprobación", group: "cliente", clientWait: true },
+  { key: "disenoVisual", label: "Diseño visual", group: "diseno" },
+  { key: "desarrollo", label: "Desarrollo", group: "diseno" },
+  { key: "qa", label: "Etapa QA", group: "proyectos" },
+  { key: "procesos", label: "Pruebas QA Usuario Proyecto", group: "proyectos" },
+  { key: "pruebasCompletas", label: "Pruebas completas", group: "cliente", clientWait: true },
+  { key: "produccion", label: "Etapa producción", group: "produccion", production: true },
+];
+
+/** Etapas visibles en detalle = base + columnas personalizadas */
+let STAGES = BASE_STAGES.slice();
+let customStages = [];
+
+const CUSTOM_STAGES_KEY = "linkproject-custom-stages-v1";
+
+function slugStageKey(label) {
+  const base = String(label || "etapa")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 40);
+  let key = `extra_${base || "columna"}`;
+  let n = 2;
+  while (STAGES.some((s) => s.key === key) || customStages.some((s) => s.key === key)) {
+    key = `extra_${base || "columna"}_${n++}`;
+  }
+  return key;
+}
+
+function rebuildStagesList() {
+  STAGES = [...BASE_STAGES, ...customStages];
+}
+
+function loadCustomStages() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_STAGES_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data)) return;
+    customStages = data
+      .filter((s) => s && s.key && s.label)
+      .map((s) => ({
+        key: String(s.key),
+        label: String(s.label),
+        group: s.group || "default",
+        custom: true,
+      }));
+  } catch (_) {
+    customStages = [];
+  }
+  rebuildStagesList();
+}
+
+function saveCustomStages() {
+  localStorage.setItem(CUSTOM_STAGES_KEY, JSON.stringify(customStages));
+  if (typeof window.__linkprojectSchedulePersist === "function") window.__linkprojectSchedulePersist();
+}
+
+function ensureCustomStagesOnReqs() {
+  customStages.forEach((s) => {
+    if (!RESPONSABLES[s.key]) RESPONSABLES[s.key] = "Por asignar";
+    if (!ROLES[s.key]) ROLES[s.key] = "Columna personalizada";
+    requerimientos.forEach((r) => {
+      if (!r.etapas[s.key]) {
+        r.etapas[s.key] = emptyStage(responsableEtapa(s.key), "Columna nueva — sin fechas");
+      }
+    });
+  });
+}
+
+function addCustomStageColumn({ label, group }) {
+  const name = String(label || "").trim();
+  if (!name) return null;
+  const stageDef = {
+    key: slugStageKey(name),
+    label: name,
+    group: group || "default",
+    custom: true,
+  };
+  customStages.push(stageDef);
+  saveCustomStages();
+  rebuildStagesList();
+  ensureCustomStagesOnReqs();
+  return stageDef;
+}
+
+function removeCustomStageColumn(key) {
+  customStages = customStages.filter((s) => s.key !== key);
+  saveCustomStages();
+  rebuildStagesList();
+  requerimientos.forEach((r) => {
+    if (r.etapas) delete r.etapas[key];
+  });
+  Object.keys(stageEdits).forEach((reqKey) => {
+    if (stageEdits[reqKey]) delete stageEdits[reqKey][key];
+  });
+  saveStageEdits();
+}
+
+const AREAS = []; // se llena desde los requerimientos reales
+
+/**
+ * Cumplimiento vs fecha fin planificada:
+ * - Si hay fin real: 100% si realFin <= planFin; si se atrasó, baja proporcional.
+ * - Si solo hay inicio real: se evalúa contra planFin (en curso).
+ * - Si no hay fechas reales: % según días restantes / vencidos vs planFin.
+ */
+function calcCumplimiento(planFin, realFin, hoy = new Date()) {
+  if (!planFin) return null;
+  const plan = parseDate(planFin);
+  if (!plan) return null;
+
+  if (realFin) {
+    const r = parseDate(realFin);
+    if (!r) return null;
+    if (r <= plan) return 100;
+    const delay = daysBetween(plan, r);
+    return Math.max(0, Math.round(100 - delay * 5));
+  }
+
+  if (hoy <= plan) {
+    const totalWindow = 14;
+    const remaining = daysBetween(hoy, plan);
+    return Math.min(100, Math.round((remaining / totalWindow) * 100));
+  }
+
+  const overdue = daysBetween(plan, hoy);
+  return Math.max(0, Math.round(100 - overdue * 8));
+}
+
+function parseDate(iso) {
+  if (!iso) return null;
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function toIso(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function addDaysIso(iso, n) {
+  const d = parseDate(iso);
+  d.setDate(d.getDate() + n);
+  return toIso(d);
+}
+
+function daysBetween(a, b) {
+  return Math.round((b - a) / 86400000);
+}
+
+function formatDate(iso) {
+  if (!iso) return "—";
+  const d = parseDate(iso);
+  return d.toLocaleDateString("es-EC", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+/** Fecha corta para celdas densas: 19 jul */
+function formatDateShort(iso) {
+  if (!iso) return "—";
+  if (iso === "hoy") return "hoy";
+  const d = parseDate(iso);
+  if (!d) return "—";
+  const txt = d.toLocaleDateString("es-EC", { day: "2-digit", month: "short" });
+  return txt.replace(/\./g, "").replace(/\s+/g, " ").trim();
+}
+
+function formatRange(inicio, fin) {
+  if (!inicio && !fin) return "—";
+  if (inicio && fin && inicio === fin) return formatDate(inicio);
+  return `${formatDate(inicio)} → ${formatDate(fin)}`;
+}
+
+/**
+ * Rango visual compacto inicio → fin (tooltip con fecha completa).
+ * finIso puede ser ISO o "hoy".
+ */
+function dateRangeHtml(inicioIso, finIso, toneOrOpts = "") {
+  const opts = typeof toneOrOpts === "string" ? { tone: toneOrOpts } : toneOrOpts || {};
+  const tone = opts.tone || "";
+  const label = opts.label || "Fechas";
+  const hasAny = !!(inicioIso || (finIso && finIso !== "—"));
+  if (!hasAny) return `<span class="date-range muted" title="${label}: sin fechas">—</span>`;
+
+  const same = inicioIso && finIso && inicioIso === finIso && finIso !== "hoy";
+  const start = formatDateShort(inicioIso);
+  const end = finIso === "hoy" ? "hoy" : formatDateShort(finIso);
+  const fullStart = inicioIso ? formatDate(inicioIso) : "—";
+  const fullEnd = finIso === "hoy" ? "hoy" : finIso ? formatDate(finIso) : "—";
+  const title = same ? `${label}: ${fullStart}` : `${label}: ${fullStart} → ${fullEnd}`;
+  const endCls = finIso === "hoy" ? "is-today" : tone || "";
+
+  if (same) {
+    return `<span class="date-range ${tone}" title="${title}"><span class="d-end">${start}</span></span>`;
+  }
+
+  return `<span class="date-range ${tone}" title="${title}">
+    <span class="d-start">${start}</span>
+    <span class="d-sep" aria-hidden="true">→</span>
+    <span class="d-end ${endCls}">${end}</span>
+  </span>`;
+}
+
+/** planInicio, planFin, realInicio, realFin, responsable, avance */
+function stage(planInicio, planFin, realInicio, realFin, responsable, avance) {
+  return { planInicio, planFin, realInicio, realFin, responsable, avance };
+}
+
+function emptyStage(responsable, avance = "No aplica en esta vista de planificación") {
+  return stage(null, null, null, null, responsable, avance);
+}
+
+/** Reparte el rango general en 3 tramos: Levantamiento, Prototipado, Doc. funcional */
+function splitPlanningRange(inicio, fin) {
+  let a = parseDate(inicio);
+  let b = parseDate(fin);
+  if (!a || !b) return null;
+  if (b < a) [a, b] = [b, a];
+  const startIso = toIso(a);
+  const total = daysBetween(a, b);
+
+  if (total <= 0) {
+    return [
+      { inicio: startIso, fin: startIso },
+      { inicio: startIso, fin: startIso },
+      { inicio: startIso, fin: startIso },
+    ];
+  }
+
+  const parts = [];
+  for (let i = 0; i < 3; i++) {
+    const from = Math.round((total * i) / 3);
+    const to = Math.round((total * (i + 1)) / 3);
+    parts.push({
+      inicio: addDaysIso(startIso, from),
+      fin: addDaysIso(startIso, to),
+    });
+  }
+  return parts;
+}
+
+function prioridadByOrden(index, total) {
+  const rank = index / total;
+  if (rank < 0.34) return "Alta";
+  if (rank < 0.67) return "Media";
+  return "Baja";
+}
+
+/** Responsables por etapa (área de proyecto / desarrollo) */
+const RESPONSABLES = {
+  levantamiento: "Liskeyla Macías",
+  prototipado: "Liskeyla Macías",
+  documento: "Gabriela Hidalgo",
+  aprobacion: "Gabriela Hidalgo",
+  disenoVisual: "Liskeyla Macías",
+  desarrollo: "Alfredo Hermoso",
+  qa: "Erick Valverde",
+  pruebasCompletas: "Cliente",
+  procesos: "Liskeyla Macías",
+  produccion: "Gabriela Hidalgo",
+};
+
+const ROLES = {
+  levantamiento: "Área de proyectos — flujo de levantamiento",
+  prototipado: "Área de proyectos — continuidad del flujo",
+  documento: "Área de proyectos — documento funcional",
+  aprobacion: "Cliente — aprobación / demora de firma",
+  disenoVisual: "Diseño visual — UI/UX previo a desarrollo",
+  desarrollo: "Líder de proyecto — área de desarrollo",
+  qa: "Coordinador de proyecto — área de desarrollo",
+  pruebasCompletas: "Cliente — pruebas completas tras QA con usuario (pueden tomar semanas)",
+  procesos: "Área de proyectos — pruebas QA con usuario",
+  produccion: "Aprobación de pases a producción",
+};
+
+function responsableEtapa(stageKey) {
+  return RESPONSABLES[stageKey] || "Por asignar";
+}
+
+function normName(s) {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function namesMatch(a, b) {
+  const na = normName(a);
+  const nb = normName(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (na.includes(nb) || nb.includes(na)) return true;
+  const ta = new Set(na.split(" ").filter((t) => t.length > 3));
+  const tb = nb.split(" ").filter((t) => t.length > 3);
+  if (!tb.length) return false;
+  const hits = tb.filter((t) => ta.has(t)).length;
+  return hits >= Math.min(3, tb.length) && hits / tb.length >= 0.6;
+}
+
+/**
+ * Fuente por defecto: planificación de documentos funcionales (orden = prioridad).
+ * estado: Enviado/Listo → fechas reales = planificadas en etapas tempranas.
+ */
+const DEFAULT_REQ_FUENTE = [
+  { nombre: "Falso embarque V3 (Devoluciones y/o Rechazos)", area: "Operaciones", inicio: "2025-05-23", fin: "2025-12-08", estado: "Enviado" },
+  { nombre: "Portería Web (2.0)", area: "Operaciones", inicio: "2025-05-26", fin: "2025-05-26", estado: "Enviado" },
+  { nombre: "Solicitud de Actualización DMS-Liquidaciones V1", area: "Liquidaciones", inicio: "2025-05-29", fin: "2025-08-29", estado: "Listo" },
+  { nombre: "Reporte de Rechazo y Devoluciones", area: "Reportería", inicio: "2025-06-19", fin: "2025-08-12", estado: "Enviado" },
+  { nombre: "Transmisión de Booking One al DMS", area: "Operaciones", inicio: "2025-06-27", fin: "2025-07-08", estado: "Enviado" },
+  { nombre: "Reporte por Componentes V2", area: "Reportería", inicio: "2025-07-22", fin: "2025-07-22", estado: "Listo" },
+  { nombre: "Autoaprobación Daikin", area: "Liquidaciones", inicio: "2025-08-07", fin: "2025-08-27", estado: "Listo" },
+  { nombre: "Sellos y Precintos V2", area: "Operaciones", inicio: "2025-09-09", fin: "2025-09-15", estado: "Enviado" },
+  { nombre: "Rediseño del módulo de inspección y despacho — Puntos de Inspección", area: "Recepción y Despacho", inicio: "2025-10-02", fin: "2025-10-17", estado: "Enviado" },
+  { nombre: "Solicitud de actualización en DMS — Liquidaciones V2", area: "Liquidaciones", inicio: "2025-09-15", fin: "2025-10-09", estado: "Listo" },
+  { nombre: "Rediseño del Módulo de Lavado — Valores en decimales y visualización en reportería", area: "Recepción y Despacho", inicio: "2025-10-20", fin: "2025-10-31", estado: "Enviado" },
+  { nombre: "Documento Anexos Autoaprobación Daikin y Solicitud de Act. DMS Liquidaciones V2", area: "Liquidaciones", inicio: "2025-11-14", fin: "2025-11-18", estado: "Listo" },
+  { nombre: "Proyecto Servidor Réplica", area: "Reportería", inicio: "2025-11-14", fin: "2025-11-18", estado: "Listo" },
+  { nombre: "Turnos de Reposición y Evacuación V2", area: "Operaciones", inicio: "2025-12-26", fin: "2026-01-09", estado: "Listo" },
+  { nombre: "Anexo de turnos de Evacuación y Reposición V2", area: "Operaciones", inicio: "2026-02-18", fin: "2026-02-20", estado: "Listo" },
+  { nombre: "Aplicativo móvil para turnos de evacuación y reposición para choferes", area: "Operaciones", inicio: "2026-02-24", fin: "2026-03-13", estado: "Enviado" },
+  { nombre: "Sellos y Precintos V3", area: "Operaciones", inicio: "2026-03-17", fin: "2026-07-20", estado: "Detenido" },
+  { nombre: "Ajustes en validación para el rediseño de módulo de inspección y despacho (siete puntos)", area: "Operaciones", inicio: "2026-04-29", fin: "2026-05-20", estado: "Enviado" },
+  { nombre: "Ajuste de identificados en fase QA para DMS Liquidaciones V2 y Autoaprobaciones Daikin", area: "Liquidaciones", inicio: "2026-05-08", fin: "2026-05-08", estado: "Listo" },
+  { nombre: "Marca de agua DMS", area: "Operaciones", inicio: "2026-05-12", fin: "2026-05-12", estado: "Listo" },
+  { nombre: "Módulo de Servicios Asignados (Complementarios) por Contenedor", area: "Reparaciones Reefer", inicio: "2026-05-22", fin: "2026-07-20", estado: "En Proceso" },
+  { nombre: "Requerimiento Patio 4 Sur — RFS", area: "Operaciones", inicio: "2026-06-01", fin: "2026-06-03", estado: "Enviado" },
+  { nombre: "Servicios Turnos de Evacuación y Reposición en Portería Web", area: "Operaciones", inicio: "2026-06-10", fin: "2026-06-25", estado: "Enviado" },
+  { nombre: "Proceso TO BE: PTI Post Repair", area: "Reparaciones Reefer", inicio: "2026-07-07", fin: "2026-08-17", estado: "Planificar" },
+  { nombre: "Reporte de PTI Post Repair", area: "Reparaciones Reefer", inicio: "2026-07-07", fin: "2026-08-17", estado: "Planificar" },
+  { nombre: "Transmisión de booking de SBM/Nautic", area: "Reparaciones Reefer", inicio: "2026-07-10", fin: "2026-07-20", estado: "Enviado" },
+  { nombre: "Mejoras de Pruebas de Luz", area: "Operaciones", inicio: "2026-07-13", fin: "2026-07-20", estado: "Enviado" },
+  { nombre: "Cero Papel V2", area: "Reportería", inicio: "2026-07-27", fin: "2026-08-14", estado: "Planificar" },
+  { nombre: "Layout Virtual RFS — Modelo de Ubicaciones", area: "Operaciones", inicio: "2026-08-17", fin: "2026-11-09", estado: "Planificar" },
+  { nombre: "Reporte de Ubicación de contenedores", area: "Operaciones", inicio: "2026-08-17", fin: "2026-11-09", estado: "Planificar" },
+  { nombre: "Registro de movimiento de operadores de portacontenedores", area: "Operaciones", inicio: "2026-09-07", fin: "2026-11-23", estado: "Planificar" },
+  { nombre: "Reporte de Tiempos de Status de contenedores", area: "Operaciones", inicio: "2026-09-07", fin: "2026-11-23", estado: "Planificar" },
+  { nombre: "Bitácora digital de seguridad", area: "Reportería", inicio: "2026-11-23", fin: "2026-12-18", estado: "Pendiente" },
+  { nombre: "Insumos de Reparaciones: Fracciones de los paneles y consumibles SAP", area: "Reparaciones Reefer", inicio: "2026-12-18", fin: "2027-01-04", estado: "Pendiente" },
+  { nombre: "Sistema DMS integrándolo con SAP (órdenes, bodega)", area: "Reportería", inicio: "2027-01-05", fin: "2027-01-17", estado: "Pendiente" },
+];
+
+/**
+ * Fuente por defecto: etapa Desarrollo (orden = prioridad de desarrollo).
+ * Listo → real = planificado. En Proceso / Detenido / Pendiente según reglas.
+ */
+const DEFAULT_DEV_FUENTE = [
+  { nombre: "Códigos de partes de Contenedores bajo normas IICL", area: "Estructura (Box)", inicio: "2025-11-05", fin: "2025-11-26", estado: "Listo" },
+  { nombre: "Solicitud de actualización en DMS — Liquidaciones V2", area: "Liquidaciones", inicio: "2025-11-19", fin: "2025-11-28", estado: "Listo" },
+  { nombre: "Documento Anexos Autoaprobación Daikin y Solicitud de Act. DMS Liquidaciones V2", area: "Liquidaciones", inicio: "2025-12-02", fin: "2025-12-19", estado: "Listo" },
+  { nombre: "Proyecto Servidor Réplica", area: "Reportería", inicio: "2025-12-15", fin: "2025-12-19", estado: "Listo" },
+  { nombre: "Turnos de Reposición y Evacuación V2", area: "Operaciones", inicio: "2026-01-15", fin: "2026-02-05", estado: "Listo" },
+  { nombre: "Aplicativo móvil para turnos de evacuación y reposición para choferes", area: "Operaciones", inicio: "2026-03-23", fin: "2026-05-04", estado: "Listo" },
+  { nombre: "Falso embarque V3 (Devoluciones y/o Rechazos)", area: "Operaciones", inicio: "2026-03-30", fin: "2026-04-17", estado: "Detenido" },
+  { nombre: "Ajuste de identificados en fase QA para DMS Liquidaciones V2 y Autoaprobaciones Daikin", area: "Liquidaciones", inicio: "2026-05-08", fin: "2026-05-16", estado: "Listo" },
+  { nombre: "Rediseño del Módulo de Lavado — Valores en decimales y visualización en reportería", area: "Recepción y Despacho", inicio: "2026-05-09", fin: "2026-05-27", estado: "Detenido" },
+  { nombre: "Marca de agua DMS", area: "Operaciones", inicio: "2026-05-13", fin: "2026-05-19", estado: "Listo" },
+  { nombre: "Requerimiento Patio 4 Sur — RFS", area: "Operaciones", inicio: "2026-06-04", fin: "2026-06-06", estado: "Pendiente" },
+  { nombre: "Ajustes en validación para el rediseño de módulo de inspección y despacho (siete puntos)", area: "Operaciones", inicio: "2026-06-09", fin: "2026-07-21", estado: "En Proceso" },
+  { nombre: "Anexo de turnos de Evacuación y Reposición V2", area: "Operaciones", inicio: "2026-06-09", fin: "2026-07-07", estado: "Listo" },
+  { nombre: "Rediseño del módulo de inspección y despacho — Puntos de Inspección", area: "Recepción y Despacho", inicio: "2026-06-09", fin: "2026-07-21", estado: "En Proceso" },
+];
+
+/**
+ * Requerimientos ya en producción (Listo).
+ * plan/real = fechas de producción
+ * docInicio/docFin = documento funcional (se reparte en Levantamiento / Prototipado / Doc. funcional)
+ */
+const DEFAULT_PROD_LISTOS = [
+  { nombre: "Sistema de Bloqueos de Turnos Administrativo", area: "Reefer (Máquina)", plan: "2024-07-19", real: "2024-08-22", docInicio: "2024-03-01", docFin: "2024-03-01" },
+  { nombre: "Módulo Monitor de Servicios Part 1", area: "Operaciones", plan: "2024-08-05", real: "2024-09-12", docInicio: "2024-07-09", docFin: "2024-07-09" },
+  { nombre: "Liquidaciones V4", area: "Liquidaciones", plan: "2025-01-01", real: "2025-01-01", docInicio: "2024-07-15", docFin: "2024-07-15" },
+  { nombre: "Reparación de autoaprobaciones (SBM)", area: "Reefer (Máquina)", plan: "2024-08-19", real: "2024-08-19", docInicio: "2024-07-31", docFin: "2024-07-31" },
+  { nombre: "Reparaciones en Despachos y Generado de Estimados", area: "R&D (Recepción y Despacho)", plan: "2024-11-28", real: "2024-12-13", docInicio: "2024-08-06", docFin: "2024-08-06" },
+  { nombre: "RnD - Inclusión de tiempos de inicio y fin de inspección", area: "R&D (Recepción y Despacho)", plan: "2025-04-11", real: "2025-04-11", docInicio: "2024-08-06", docFin: "2024-08-06" },
+  { nombre: "Automatizar campos de Exportación (Exportador, Nave, Itinerario) mediante Turno", area: "Operaciones", plan: "2024-11-25", real: "2024-11-25", docInicio: "2024-08-23", docFin: "2024-08-23" },
+  { nombre: "Mejoras en Sistemas de Turnos", area: "Operaciones", plan: "2024-12-11", real: "2024-12-20", docInicio: "2024-08-23", docFin: "2024-08-23" },
+  { nombre: "Requerimiento de Módulo de Portería V5", area: "Operaciones", plan: "2024-09-02", real: "2024-09-02", docInicio: "2024-09-02", docFin: "2024-09-02" },
+  { nombre: "Preasignación/Bloqueo de Contenedores bajo Booking", area: "Operaciones", plan: "2024-11-07", real: "2024-11-29", docInicio: "2024-09-23", docFin: "2024-09-23" },
+  { nombre: "Módulo Monitor de Servicios Part 1.2", area: "Operaciones", plan: "2024-10-02", real: "2024-10-04", docInicio: "2024-09-25", docFin: "2024-09-25" },
+  { nombre: 'Proceso TO BE "Prueba de Luz"', area: "Operaciones", plan: "2025-03-13", real: "2025-03-13", docInicio: "2024-10-15", docFin: "2024-10-15" },
+  { nombre: "Mejoras Proceso de Seteo de Contenedores", area: "Reefer (Máquina)", plan: "2025-02-13", real: "2025-02-13", docInicio: "2024-10-29", docFin: "2024-10-29" },
+  { nombre: "Usuario Máster-Portal de Turnos", area: "Operaciones", plan: "2025-05-08", real: "2025-05-08", docInicio: "2024-11-04", docFin: "2024-12-05" },
+  { nombre: "Reportería de Asistencias Técnicas", area: "Reportería", plan: "2024-12-30", real: "2025-01-13", docInicio: "2024-11-05", docFin: "2024-11-05" },
+  { nombre: "App Estimación de Asistencias Técnicas", area: "Reefer (Máquina)", plan: "2024-12-30", real: "2025-01-13", docInicio: "2024-11-20", docFin: "2024-11-20" },
+  { nombre: "Códigos de partes de Contenedores bajo normas IICL", area: "Estructura (Box)", plan: "2024-12-24", real: "2024-12-24", docInicio: "2024-12-24", docFin: "2024-12-24" },
+  { nombre: "Turnos de Reposición y Evacuación", area: "Operaciones", plan: "2026-02-20", real: "2026-02-20", docInicio: "2025-01-07", docFin: "2025-01-07" },
+  { nombre: "Control automático despacho de contenedores operativos", area: "Operaciones", plan: "2025-05-21", real: "2025-05-21", docInicio: "2025-01-20", docFin: "2025-01-20" },
+  { nombre: "Reporte por Componentes", area: "Reportería", plan: "2025-06-26", real: "2025-06-26", docInicio: "2025-02-10", docFin: "2025-02-10" },
+  { nombre: "Maqueta de Desarrollo de Destiempos", area: "Operaciones", plan: "2025-06-19", real: "2025-06-19", docInicio: "2025-04-15", docFin: "2025-04-15" },
+  { nombre: "Solicitud de Actualización DMS-Liquidaciones V1", area: "Liquidaciones", plan: "2025-10-16", real: "2025-10-16", docInicio: "2025-05-29", docFin: "2025-08-29" },
+  { nombre: "Reporte por Componentes V2", area: "Reportería", plan: "2025-08-28", real: "2025-08-28", docInicio: "2025-07-22", docFin: "2025-07-22" },
+  { nombre: "Autoaprobación Daikin", area: "Liquidaciones", plan: "2026-06-11", real: "2026-06-11", docInicio: "2025-08-07", docFin: "2025-08-27" },
+  { nombre: "Solicitud de actualización en DMS - liquidaciones V2", area: "Liquidaciones", plan: "2026-06-11", real: "2026-06-11", docInicio: "2025-09-15", docFin: "2025-10-09" },
+  { nombre: "Documento Anexos Autoaprobación Daikin y Solicitud de Act. DMS Liquidaciones V2", area: "Liquidaciones", plan: "2026-06-11", real: "2026-06-11", docInicio: "2025-11-14", docFin: "2025-11-18" },
+  { nombre: "Proyecto Servidor Réplica", area: "Reportería", plan: "2025-12-19", real: "2025-12-19", docInicio: "2025-11-14", docFin: "2025-11-18" },
+  { nombre: "Turnos de Reposición y Evacuación V2", area: "Operaciones", plan: "2026-02-18", real: "2026-02-20", docInicio: "2025-12-26", docFin: "2026-01-09" },
+  { nombre: "Anexo de turnos de Evacuación y Reposición v2", area: "Operaciones", plan: "2026-02-27", real: "2026-02-27", docInicio: "2026-02-18", docFin: "2026-02-20" },
+  { nombre: "Ajuste de identificados en fase QA para DMS liquidaciones V2 y Autoaprobaciones Daikin", area: "Liquidaciones", plan: "2026-06-11", real: "2026-06-11", docInicio: "2026-05-08", docFin: "2026-05-08" },
+  { nombre: "Marca de agua DMS", area: "Operaciones", plan: "2026-06-11", real: "2026-06-11", docInicio: "2026-05-12", docFin: "2026-05-12" },
+  { nombre: "Sellos y Precintos V1", area: "Operaciones", plan: "2025-09-04", real: "2025-09-04", docInicio: "2025-09-04", docFin: "2025-09-04" },
+];
+
+const EARLY_STAGE_KEYS = ["levantamiento", "prototipado", "documento"];
+
+function applyDocDatesToEarlyStages(req, docInicio, docFin) {
+  let inicio = docInicio || docFin;
+  let fin = docFin || docInicio;
+  if (!inicio || !fin) return;
+  if (parseDate(fin) < parseDate(inicio)) [inicio, fin] = [fin, inicio];
+
+  const segs = splitPlanningRange(inicio, fin);
+  if (!segs) return;
+
+  const labels = ["Levantamiento", "Prototipado", "Documento funcional"];
+  EARLY_STAGE_KEYS.forEach((key, i) => {
+    const seg = segs[i];
+    const resp = req.etapas?.[key]?.responsable || responsableEtapa(key);
+    req.etapas[key] = stage(
+      seg.inicio,
+      seg.fin,
+      seg.inicio,
+      seg.fin,
+      resp,
+      `${labels[i]} · Listo (documento funcional)`
+    );
+  });
+}
+
+function markRequirementListoProduccion(req, planDate, realDate, docInicio, docFin) {
+  const plan = planDate || realDate;
+  const real = realDate || planDate;
+  BASE_STAGES.forEach((s) => {
+    if (EARLY_STAGE_KEYS.includes(s.key)) return;
+    const resp = req.etapas?.[s.key]?.responsable || responsableEtapa(s.key);
+    req.etapas[s.key] = stage(
+      plan,
+      real,
+      plan,
+      real,
+      resp,
+      s.production ? `Producción · Listo` : `Completado · Listo`
+    );
+  });
+
+  applyDocDatesToEarlyStages(req, docInicio || plan, docFin || real);
+
+  customStages.forEach((s) => {
+    if (!req.etapas[s.key]) {
+      req.etapas[s.key] = emptyStage(responsableEtapa(s.key), "Columna opcional");
+    }
+  });
+  req.estadoDoc = "Listo";
+  req.estadoDev = "Listo";
+  req.estadoFuente = "Listo";
+  if (!req.decision || req.decision === "pendiente") req.decision = "aprobado";
+  if (!req.comentario) req.comentario = "Cerrado en producción";
+  return req;
+}
+
+function buildListoProduccionRequirement(item, index, total) {
+  const req = {
+    id: index + 1,
+    nombre: item.nombre,
+    prioridad: prioridadByOrden(index, total),
+    area: item.area,
+    estadoFuente: "Listo",
+    estadoDoc: "Listo",
+    estadoDev: "Listo",
+    dificultad: "media",
+    decision: "aprobado",
+    comentario: "Cerrado en producción",
+    etapas: {},
+  };
+  return markRequirementListoProduccion(req, item.plan, item.real, item.docInicio, item.docFin);
+}
+
+function mergeProdListosInto(list) {
+  const total = Math.max(1, list.length + DEFAULT_PROD_LISTOS.length);
+  DEFAULT_PROD_LISTOS.forEach((item, i) => {
+    const existing = list.find((r) => namesMatch(r.nombre, item.nombre));
+    if (existing) {
+      markRequirementListoProduccion(existing, item.plan, item.real, item.docInicio, item.docFin);
+      if (item.area) existing.area = item.area;
+    } else {
+      list.push(buildListoProduccionRequirement(item, list.length + i, total));
+    }
+  });
+  return list;
+}
+function buildEarlyStages(row) {
+  const segs = splitPlanningRange(row.inicio, row.fin);
+  const labels = ["Levantamiento", "Prototipado", "Documento funcional"];
+  const keys = ["levantamiento", "prototipado", "documento"];
+  const estado = row.estado;
+  const done = estado === "Listo" || estado === "Enviado";
+  const inProcess = estado === "En Proceso";
+  const stopped = estado === "Detenido";
+
+  const etapas = {};
+  keys.forEach((key, i) => {
+    const seg = segs[i];
+    const resp = responsableEtapa(key);
+    let realInicio = null;
+    let realFin = null;
+    let avance = "";
+
+    if (done) {
+      realInicio = seg.inicio;
+      realFin = seg.fin;
+      avance =
+        estado === "Listo"
+          ? `${labels[i]} cerrado — estado Listo`
+          : `${labels[i]} cerrado — documento enviado`;
+    } else if (inProcess) {
+      if (i < 2) {
+        realInicio = seg.inicio;
+        realFin = seg.fin;
+        avance = `${labels[i]} completado`;
+      } else {
+        realInicio = seg.inicio;
+        realFin = null;
+        avance = "Documento funcional en elaboración / aprobación";
+      }
+    } else if (stopped) {
+      if (i === 0) {
+        realInicio = seg.inicio;
+        realFin = seg.fin;
+        avance = "Levantamiento cerrado — requerimiento detenido";
+      } else {
+        avance = "Detenido — sin avance real";
+      }
+    } else if (estado === "Planificar") {
+      avance = "Planificado — pendiente de iniciar";
+    } else {
+      avance = "Pendiente de planificación operativa";
+    }
+
+    etapas[key] = stage(seg.inicio, seg.fin, realInicio, realFin, resp, avance);
+  });
+
+  return etapas;
+}
+
+function buildDesarrolloStage(row) {
+  let inicio = row.inicio;
+  let fin = row.fin;
+  if (parseDate(fin) < parseDate(inicio)) [inicio, fin] = [fin, inicio];
+
+  const resp = responsableEtapa("desarrollo");
+  const estado = row.estado;
+  let realInicio = null;
+  let realFin = null;
+  let avance = "";
+
+  if (estado === "Listo") {
+    realInicio = inicio;
+    realFin = fin;
+    avance = "Desarrollo cerrado — estado Listo (líder: Alfredo Hermoso · coord.: Erick Valverde)";
+  } else if (estado === "En Proceso") {
+    realInicio = inicio;
+    realFin = null;
+    avance = "Desarrollo en proceso — seguimiento Erick Valverde";
+  } else if (estado === "Detenido") {
+    realInicio = inicio;
+    realFin = null;
+    avance = "Desarrollo detenido";
+  } else if (estado === "Pendiente") {
+    avance = "Desarrollo pendiente de iniciar";
+  } else {
+    avance = `Desarrollo — ${estado}`;
+  }
+
+  return stage(inicio, fin, realInicio, realFin, resp, avance);
+}
+
+function findDevRow(nombre) {
+  return DEV_FUENTE.find((d) => namesMatch(nombre, d.nombre)) || null;
+}
+
+function emptyEarlyStages() {
+  return {
+    levantamiento: emptyStage(responsableEtapa("levantamiento"), "Sin data de documento funcional en esta fuente"),
+    prototipado: emptyStage(responsableEtapa("prototipado"), "Sin data de documento funcional en esta fuente"),
+    documento: emptyStage(responsableEtapa("documento"), "Sin data de documento funcional en esta fuente"),
+  };
+}
+
+function rangeDays(inicio, fin) {
+  if (!inicio || !fin) return 0;
+  const a = parseDate(inicio);
+  const b = parseDate(fin);
+  if (!a || !b) return 0;
+  return Math.max(1, Math.abs(daysBetween(a, b)) + 1);
+}
+
+/** Estima dificultad (baja/media/alta) según duración, área y complejidad del nombre */
+function estimateDifficulty(nombre, area, docDays, devDays) {
+  let score = 2;
+  const n = normName(nombre);
+  const span = Math.max(docDays || 0, devDays || 0);
+
+  if (span > 0 && span <= 7) score -= 1;
+  else if (span > 21 && span <= 45) score += 1;
+  else if (span > 45) score += 2;
+
+  const hard = [
+    "sap",
+    "integr",
+    "rediseno",
+    "movil",
+    "servidor",
+    "layout",
+    "falso embarque",
+    "validacion",
+    "siete",
+    "complementario",
+    "portacontenedor",
+    "ubicacion",
+    "replica",
+    "booking",
+  ];
+  const easy = ["anexo", "marca de agua", "codigos de partes", "autoaprobacion"];
+  hard.forEach((k) => {
+    if (n.includes(k)) score += 1;
+  });
+  easy.forEach((k) => {
+    if (n.includes(k)) score -= 1;
+  });
+
+  if (/reefer|liquidaciones|estructura/i.test(area)) score += 0.5;
+  if (/reporter/i.test(area) && span <= 14) score -= 0.5;
+
+  score = Math.max(1, Math.min(5, Math.round(score * 10) / 10));
+  const level = score <= 2 ? "baja" : score <= 3.5 ? "media" : "alta";
+  const days = {
+    baja: { aprobacion: 5, disenoVisual: 5, desarrollo: 8, qa: 5, procesos: 4, pruebasCompletas: 10, produccion: 3 },
+    media: { aprobacion: 10, disenoVisual: 8, desarrollo: 15, qa: 10, procesos: 7, pruebasCompletas: 14, produccion: 5 },
+    alta: { aprobacion: 18, disenoVisual: 14, desarrollo: 28, qa: 18, procesos: 12, pruebasCompletas: 21, produccion: 8 },
+  }[level];
+
+  return { level, score, days };
+}
+
+function planWindowFrom(startIso, durationDays) {
+  const inicio = startIso;
+  const fin = addDaysIso(startIso, Math.max(0, durationDays - 1));
+  return { inicio, fin };
+}
+
+function nextDay(iso) {
+  return addDaysIso(iso, 1);
+}
+
+function todayIso() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return toIso(d);
+}
+
+/**
+ * Completa Aprobación, Diseño visual, Desarrollo (si falta), QA, Procesos y Producción.
+ * Cadena: Doc funcional → Aprobación (cliente) → Diseño visual → Desarrollo → QA → Procesos → Producción.
+ */
+function estimateRemainingStages({ nombre, area, early, desarrollo, estadoDoc, estadoDev, difficulty }) {
+  const hoy = todayIso();
+  const stopped = estadoDev === "Detenido" || estadoDoc === "Detenido";
+  const pendingUp =
+    estadoDev === "Pendiente" ||
+    estadoDev === "Planificar" ||
+    (!estadoDev && (estadoDoc === "Pendiente" || estadoDoc === "Planificar"));
+  const inProcess = estadoDev === "En Proceso";
+  const docDone = estadoDoc === "Listo" || estadoDoc === "Enviado";
+
+  const emptyTrail = () => ({
+    aprobacion: emptyStage(responsableEtapa("aprobacion"), "Sin base para estimar"),
+    disenoVisual: emptyStage(responsableEtapa("disenoVisual"), "Sin base para estimar"),
+    desarrollo: desarrollo || emptyStage(responsableEtapa("desarrollo"), "Sin base para estimar"),
+    qa: emptyStage(responsableEtapa("qa"), "Sin base para estimar"),
+    pruebasCompletas: emptyStage(responsableEtapa("pruebasCompletas"), "Sin base para estimar"),
+    procesos: emptyStage(responsableEtapa("procesos"), "Sin base para estimar"),
+    produccion: emptyStage(responsableEtapa("produccion"), "Sin base para estimar"),
+    difficulty,
+  });
+
+  if (!early.documento?.planFin && !desarrollo?.planFin) return emptyTrail();
+
+  function buildFollow({ label, days, stageKey, after, ready }) {
+    if (!after) {
+      return {
+        stage: emptyStage(responsableEtapa(stageKey), "Sin base para estimar"),
+        fin: null,
+      };
+    }
+    const start = nextDay(after);
+    const win = planWindowFrom(start, days);
+    const responsable = responsableEtapa(stageKey);
+    let realInicio = null;
+    let realFin = null;
+    let avance = `${label} estimado — dificultad ${difficulty.level}`;
+
+    if (stopped) {
+      avance = `${label} estimado — en espera (requerimiento detenido)`;
+    } else if (!ready) {
+      avance = `${label} estimado — pendiente de etapa anterior`;
+    } else if (win.fin <= hoy) {
+      realInicio = win.inicio;
+      realFin = win.fin;
+      avance = `${label} estimado ejecutado (${difficulty.level})`;
+    } else if (win.inicio <= hoy) {
+      realInicio = win.inicio;
+      realFin = null;
+      avance = `${label} estimado en curso (${difficulty.level})`;
+    }
+
+    return {
+      stage: stage(win.inicio, win.fin, realInicio, realFin, responsable, avance),
+      fin: win.fin,
+    };
+  }
+
+  let cursor = early.documento?.planFin || null;
+
+  // Aprobación = solo hitos: fecha envío a aprobar + fecha en que se aprobó
+  const aprobacion = (() => {
+    const docFin = early.documento?.realFin || early.documento?.planFin;
+    if (!docFin) {
+      return {
+        stage: emptyStage(responsableEtapa("aprobacion"), "Sin documento para enviar a aprobación"),
+        fin: null,
+      };
+    }
+    const fechaEnvio = docFin;
+    const espera = Math.max(1, difficulty.days.aprobacion);
+    const fechaEsperada = addDaysIso(fechaEnvio, espera - 1);
+    let fechaAprobado = null;
+    let realEnvio = null;
+    let avance = "Pendiente de envío a aprobación del cliente";
+
+    if (estadoDoc === "Listo") {
+      realEnvio = fechaEnvio;
+      fechaAprobado = fechaEsperada <= hoy ? fechaEsperada : fechaEnvio;
+      if (fechaAprobado > hoy) fechaAprobado = hoy;
+      avance = "Enviado y aprobado por el cliente";
+    } else if (estadoDoc === "Enviado") {
+      realEnvio = fechaEnvio;
+      avance =
+        fechaEsperada < hoy
+          ? "Enviado a aprobación — demora del cliente"
+          : "Enviado a aprobación — pendiente de firma";
+    } else if (docDone) {
+      realEnvio = fechaEnvio;
+      avance = "Enviado a aprobación — pendiente de respuesta";
+    }
+
+    return {
+      stage: stage(
+        fechaEnvio,
+        fechaEsperada,
+        realEnvio,
+        fechaAprobado,
+        responsableEtapa("aprobacion"),
+        avance
+      ),
+      fin: fechaAprobado || fechaEsperada,
+    };
+  })();
+  cursor = aprobacion.fin || cursor;
+
+  const disenoVisual = buildFollow({
+    label: "Diseño visual",
+    days: difficulty.days.disenoVisual,
+    stageKey: "disenoVisual",
+    after: cursor,
+    ready: docDone && !stopped && !pendingUp,
+  });
+  cursor = disenoVisual.fin || cursor;
+
+  let desarrolloStage = desarrollo;
+  if (!desarrolloStage?.planFin) {
+    const est = buildFollow({
+      label: "Desarrollo",
+      days: difficulty.days.desarrollo,
+      stageKey: "desarrollo",
+      after: cursor,
+      ready: docDone && !stopped && !pendingUp && !inProcess,
+    });
+    if (inProcess && est.stage.planInicio) {
+      est.stage.realInicio = est.stage.planInicio;
+      est.stage.realFin = null;
+      est.stage.avance = `Desarrollo estimado (${difficulty.level}) — en curso · coord. Erick Valverde`;
+    }
+    desarrolloStage = est.stage;
+    cursor = est.fin || cursor;
+  } else {
+    cursor = desarrolloStage.planFin;
+  }
+
+  const upstreamDone =
+    !stopped &&
+    !pendingUp &&
+    !inProcess &&
+    (estadoDev === "Listo" || !!desarrolloStage.realFin);
+
+  const qa = buildFollow({
+    label: "Etapa QA",
+    days: difficulty.days.qa,
+    stageKey: "qa",
+    after: desarrolloStage.realFin || desarrolloStage.planFin || cursor,
+    ready: upstreamDone,
+  });
+
+  if (estadoDev === "Listo" && /fase qa|ajuste de identificado/i.test(nombre)) {
+    if (qa.stage.planFin && qa.stage.planFin <= hoy) {
+      qa.stage.realInicio = qa.stage.planInicio;
+      qa.stage.realFin = qa.stage.planFin;
+      qa.stage.avance = "QA alineado a cierre de desarrollo (Listo) — Erick Valverde";
+    }
+  }
+
+  const procesos = buildFollow({
+    label: "Pruebas QA Usuario Proyecto",
+    days: difficulty.days.procesos,
+    stageKey: "procesos",
+    after: qa.fin,
+    ready: upstreamDone && !!qa.stage.realFin,
+  });
+
+  /** Cliente planifica pruebas completas tras QA con usuario; puede tomar semanas (como Aprobación). */
+  const pruebasCompletas = (() => {
+    const entrega = procesos.stage.realFin || procesos.stage.planFin || qa.fin;
+    if (!entrega) {
+      return {
+        stage: emptyStage(responsableEtapa("pruebasCompletas"), "Pendiente de QA con usuario"),
+        fin: null,
+      };
+    }
+    const espera = Math.max(1, difficulty.days.pruebasCompletas);
+    const fechaInicio = entrega;
+    const fechaEsperada = addDaysIso(fechaInicio, espera - 1);
+    let realInicio = null;
+    let realFin = null;
+    let avance = "Pendiente de entrega a pruebas completas del cliente";
+
+    if (procesos.stage.realFin) {
+      realInicio = procesos.stage.realFin;
+      avance =
+        fechaEsperada < hoy
+          ? "Pruebas completas — pendientes del cliente (pueden tomar semanas)"
+          : "En pruebas completas del cliente — plazo estimado en semanas";
+    } else if (upstreamDone && qa.stage.realFin) {
+      avance = `Pruebas completas estimadas tras QA usuario — a cargo del cliente (${difficulty.level})`;
+    }
+
+    return {
+      stage: stage(
+        fechaInicio,
+        fechaEsperada,
+        realInicio,
+        realFin,
+        responsableEtapa("pruebasCompletas"),
+        avance
+      ),
+      fin: realFin || fechaEsperada,
+    };
+  })();
+
+  const produccion = buildFollow({
+    label: "Producción",
+    days: difficulty.days.produccion,
+    stageKey: "produccion",
+    after: pruebasCompletas.fin || procesos.fin || qa.fin,
+    ready: upstreamDone && !!pruebasCompletas.stage.realFin,
+  });
+
+  if (!produccion.stage.planFin && (pruebasCompletas.fin || procesos.fin || qa.fin)) {
+    Object.assign(
+      produccion,
+      buildFollow({
+        label: "Producción",
+        days: difficulty.days.produccion,
+        stageKey: "produccion",
+        after: pruebasCompletas.fin || procesos.fin || qa.fin,
+        ready: false,
+      })
+    );
+  }
+  if (!procesos.stage.planFin && qa.fin) {
+    Object.assign(
+      procesos,
+      buildFollow({
+        label: "Pruebas QA Usuario Proyecto",
+        days: difficulty.days.procesos,
+        stageKey: "procesos",
+        after: qa.fin,
+        ready: false,
+      })
+    );
+  }
+
+  return {
+    aprobacion: aprobacion.stage,
+    disenoVisual: disenoVisual.stage,
+    desarrollo: desarrolloStage,
+    qa: qa.stage,
+    procesos: procesos.stage,
+    pruebasCompletas: pruebasCompletas.stage,
+    produccion: produccion.stage,
+    difficulty,
+  };
+}
+
+function assembleRequirement({ nombre, area, early, desarrollo, estadoDoc, estadoDev, index, total }) {
+  const docDays = rangeDays(early.documento?.planInicio, early.documento?.planFin);
+  const devDays = rangeDays(desarrollo?.planInicio, desarrollo?.planFin);
+  const difficulty = estimateDifficulty(nombre, area, docDays, devDays);
+  const trailing = estimateRemainingStages({
+    nombre,
+    area,
+    early,
+    desarrollo,
+    estadoDoc,
+    estadoDev,
+    difficulty,
+  });
+
+  return {
+    id: index + 1,
+    nombre,
+    prioridad: prioridadByOrden(index, total),
+    area,
+    estadoFuente: estadoDev || estadoDoc || "Pendiente",
+    estadoDoc,
+    estadoDev,
+    dificultad: difficulty.level,
+    decision: "pendiente",
+    comentario: "",
+    etapas: {
+      ...early,
+      aprobacion: trailing.aprobacion,
+      disenoVisual: trailing.disenoVisual,
+      desarrollo: trailing.desarrollo,
+      qa: trailing.qa,
+      pruebasCompletas: trailing.pruebasCompletas,
+      procesos: trailing.procesos,
+      produccion: trailing.produccion,
+    },
+  };
+}
+
+let REQ_FUENTE = cloneFuente(DEFAULT_REQ_FUENTE);
+let DEV_FUENTE = cloneFuente(DEFAULT_DEV_FUENTE);
+let requerimientos = [];
+let stageEdits = {};
+let reqOrder = [];
+let activeEditReqId = null;
+
+const STORAGE_KEY = "linkproject-fuentes-v1";
+const STAGE_EDITS_KEY = "linkproject-stage-edits-v1";
+const REQ_ORDER_KEY = "linkproject-req-order-v1";
+
+function cloneFuente(list) {
+  return list.map((r) => ({ ...r }));
+}
+
+function loadFuentes() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (Array.isArray(data.doc) && Array.isArray(data.dev)) {
+      REQ_FUENTE = data.doc.map((r) => ({ ...r }));
+      DEV_FUENTE = data.dev.map((r) => ({ ...r }));
+      return true;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return false;
+}
+
+function saveFuentes() {
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      doc: REQ_FUENTE,
+      dev: DEV_FUENTE,
+      updatedAt: new Date().toISOString(),
+    })
+  );
+  if (typeof window.__linkprojectSchedulePersist === "function") window.__linkprojectSchedulePersist();
+}
+
+function loadStageEdits() {
+  try {
+    const raw = localStorage.getItem(STAGE_EDITS_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data && typeof data === "object") stageEdits = data;
+  } catch (_) {
+    stageEdits = {};
+  }
+}
+
+function saveStageEdits() {
+  localStorage.setItem(STAGE_EDITS_KEY, JSON.stringify(stageEdits));
+  if (typeof window.__linkprojectSchedulePersist === "function") window.__linkprojectSchedulePersist();
+}
+
+function applyStageEdits() {
+  requerimientos.forEach((r) => {
+    const edits = stageEdits[normName(r.nombre)];
+    if (!edits) return;
+    STAGES.forEach((s) => {
+      const patch = edits[s.key];
+      if (!patch || !r.etapas[s.key]) return;
+      Object.assign(r.etapas[s.key], {
+        planInicio: patch.planInicio,
+        planFin: patch.planFin,
+        realInicio: patch.realInicio,
+        realFin: patch.realFin,
+        responsable: patch.responsable || r.etapas[s.key].responsable,
+        avance: patch.avance ?? r.etapas[s.key].avance,
+      });
+    });
+  });
+}
+
+function loadReqOrder() {
+  try {
+    const raw = localStorage.getItem(REQ_ORDER_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (Array.isArray(data)) reqOrder = data.map(String);
+  } catch (_) {
+    reqOrder = [];
+  }
+}
+
+function saveReqOrder() {
+  localStorage.setItem(REQ_ORDER_KEY, JSON.stringify(reqOrder));
+  if (typeof window.__linkprojectSchedulePersist === "function") window.__linkprojectSchedulePersist();
+}
+
+function applyReqOrder() {
+  const byKey = new Map(requerimientos.map((r) => [normName(r.nombre), r]));
+  const ordered = [];
+  reqOrder.forEach((k) => {
+    const key = normName(k);
+    if (byKey.has(key)) {
+      ordered.push(byKey.get(key));
+      byKey.delete(key);
+    }
+  });
+  byKey.forEach((r) => ordered.push(r));
+  requerimientos = ordered.map((r, i) => ({ ...r, id: i + 1 }));
+  reqOrder = requerimientos.map((r) => normName(r.nombre));
+  saveReqOrder();
+}
+
+function reorderRequirement(fromId, toId) {
+  if (fromId === toId) return false;
+  const fromIdx = requerimientos.findIndex((r) => r.id === fromId);
+  const toIdx = requerimientos.findIndex((r) => r.id === toId);
+  if (fromIdx < 0 || toIdx < 0) return false;
+
+  const activeName = activeEditReqId
+    ? requerimientos.find((r) => r.id === activeEditReqId)?.nombre
+    : null;
+
+  const [item] = requerimientos.splice(fromIdx, 1);
+  requerimientos.splice(toIdx, 0, item);
+  requerimientos = requerimientos.map((r, i) => ({ ...r, id: i + 1 }));
+  reqOrder = requerimientos.map((r) => normName(r.nombre));
+  saveReqOrder();
+
+  if (activeName) {
+    activeEditReqId = requerimientos.find((r) => namesMatch(r.nombre, activeName))?.id ?? null;
+  }
+  return true;
+}
+
+function rebuildRequerimientos() {
+  const usedDev = new Set();
+  const totalHint = Math.max(1, REQ_FUENTE.length + DEV_FUENTE.length);
+  const list = REQ_FUENTE.map((row, index) => {
+    const early = buildEarlyStages(row);
+    const devRow = findDevRow(row.nombre);
+    if (devRow) usedDev.add(devRow);
+
+    return assembleRequirement({
+      nombre: row.nombre,
+      area: row.area,
+      early,
+      desarrollo: devRow
+        ? buildDesarrolloStage(devRow)
+        : emptyStage(responsableEtapa("desarrollo"), "Sin data de desarrollo — se estima por dificultad"),
+      estadoDoc: row.estado,
+      estadoDev: devRow ? devRow.estado : null,
+      index,
+      total: totalHint,
+    });
+  });
+
+  DEV_FUENTE.forEach((devRow) => {
+    if (usedDev.has(devRow)) return;
+    if (list.some((r) => namesMatch(r.nombre, devRow.nombre))) return;
+    list.push(
+      assembleRequirement({
+        nombre: devRow.nombre,
+        area: devRow.area,
+        early: emptyEarlyStages(),
+        desarrollo: buildDesarrolloStage(devRow),
+        estadoDoc: null,
+        estadoDev: devRow.estado,
+        index: list.length,
+        total: totalHint,
+      })
+    );
+  });
+
+  requerimientos = list.map((r, i) => ({ ...r, id: i + 1 }));
+  applyStageEdits();
+  mergeProdListosInto(requerimientos);
+  ensureCustomStagesOnReqs();
+  requerimientos = requerimientos.map((r, i) => ({ ...r, id: i + 1 }));
+  applyReqOrder();
+  AREAS.length = 0;
+  AREAS.push(...[...new Set(requerimientos.map((r) => r.area))]);
+}
+
+function refreshAppFromData() {
+  rebuildRequerimientos();
+  fillAreaFilter();
+  renderKpis();
+  buildPanorama();
+  renderDetail();
+  renderDecisionSummary();
+  renderCronograma();
+  const status = document.getElementById("cargaStatus");
+  if (status) {
+    status.textContent = `Cronograma: ${buildCronoRows().length} ítems · Doc ${REQ_FUENTE.length} · Dev ${DEV_FUENTE.length} · ${new Date().toLocaleString("es-EC")}`;
+  }
+}
+
+function formToRow(form) {
+  const fd = new FormData(form);
+  return {
+    nombre: String(fd.get("nombre") || "").trim(),
+    area: String(fd.get("area") || "").trim(),
+    inicio: String(fd.get("inicio") || ""),
+    fin: String(fd.get("fin") || ""),
+    estado: String(fd.get("estado") || "Pendiente"),
+    aplica: String(fd.get("aplica") || "ambos"),
+  };
+}
+
+function buildCronoRows() {
+  const rows = [];
+  const pushOrMerge = (src, kind) => {
+    src.forEach((item, idx) => {
+      let row = rows.find((r) => namesMatch(r.nombre, item.nombre));
+      if (!row) {
+        row = {
+          key: `${normName(item.nombre)}-${rows.length}`,
+          nombre: item.nombre,
+          area: item.area,
+          doc: null,
+          docIndex: -1,
+          dev: null,
+          devIndex: -1,
+        };
+        rows.push(row);
+      }
+      if (kind === "doc") {
+        row.doc = item;
+        row.docIndex = idx;
+        if (!row.area) row.area = item.area;
+      } else {
+        row.dev = item;
+        row.devIndex = idx;
+        if (!row.area) row.area = item.area;
+      }
+    });
+  };
+  pushOrMerge(REQ_FUENTE, "doc");
+  pushOrMerge(DEV_FUENTE, "dev");
+  return rows;
+}
+
+function cronoRange() {
+  const dates = [];
+  [...REQ_FUENTE, ...DEV_FUENTE].forEach((r) => {
+    if (r.inicio) dates.push(parseDate(r.inicio));
+    if (r.fin) dates.push(parseDate(r.fin));
+  });
+  const valid = dates.filter(Boolean);
+  if (!valid.length) {
+    const hoy = new Date();
+    const start = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+    const end = new Date(hoy.getFullYear(), hoy.getMonth() + 5, 0);
+    return { start, end };
+  }
+  let min = new Date(Math.min(...valid));
+  let max = new Date(Math.max(...valid));
+  min = new Date(min.getFullYear(), min.getMonth(), 1);
+  max = new Date(max.getFullYear(), max.getMonth() + 1, 0);
+  return { start: min, end: max };
+}
+
+function monthLabels(start, end) {
+  const labels = [];
+  const cur = new Date(start.getFullYear(), start.getMonth(), 1);
+  const last = new Date(end.getFullYear(), end.getMonth(), 1);
+  while (cur <= last) {
+    labels.push({
+      key: `${cur.getFullYear()}-${cur.getMonth()}`,
+      label: cur.toLocaleDateString("es-EC", { month: "short", year: "2-digit" }),
+      date: new Date(cur),
+    });
+    cur.setMonth(cur.getMonth() + 1);
+  }
+  return labels;
+}
+
+function barStyle(inicio, fin, rangeStart, rangeEnd) {
+  if (!inicio || !fin) return null;
+  let a = parseDate(inicio);
+  let b = parseDate(fin);
+  if (!a || !b) return null;
+  if (b < a) [a, b] = [b, a];
+  const total = Math.max(1, daysBetween(rangeStart, rangeEnd));
+  const left = Math.max(0, daysBetween(rangeStart, a));
+  const right = Math.max(left + 1, daysBetween(rangeStart, b) + 1);
+  const width = Math.min(total, right) - Math.min(total, left);
+  return {
+    left: `${(Math.min(total, left) / total) * 100}%`,
+    width: `${(Math.max(1, width) / total) * 100}%`,
+  };
+}
+
+function todayMarker(rangeStart, rangeEnd) {
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const total = Math.max(1, daysBetween(rangeStart, rangeEnd));
+  if (hoy < rangeStart || hoy > rangeEnd) return null;
+  const left = daysBetween(rangeStart, hoy);
+  return `${(left / total) * 100}%`;
+}
+
+function statusTone(estado) {
+  const s = slugEstado(estado || "");
+  if (s === "listo" || s === "enviado") return "ok";
+  if (s === "detenido") return "bad";
+  if (s === "en-proceso") return "run";
+  return "warn";
+}
+
+function renderCronograma() {
+  const head = document.getElementById("cronoHead");
+  const body = document.getElementById("cronoBody");
+  if (!head || !body) return;
+
+  const rows = buildCronoRows();
+  const { start, end } = cronoRange();
+  const months = monthLabels(start, end);
+  const todayLeft = todayMarker(start, end);
+
+  head.innerHTML = `
+    <div class="crono-meta-cols">
+      <span>Ítem</span>
+      <span>Área</span>
+      <span>Estado</span>
+    </div>
+    <div class="crono-timeline-cols" style="grid-template-columns: repeat(${months.length}, minmax(72px, 1fr))">
+      ${months.map((m) => `<span>${m.label}</span>`).join("")}
+    </div>
+  `;
+
+  if (!rows.length) {
+    body.innerHTML = `<div class="crono-empty">No hay ítems. Agrega un requerimiento al cronograma.</div>`;
+    return;
+  }
+
+  body.innerHTML = rows
+    .map((row, i) => {
+      const estado = row.dev?.estado || row.doc?.estado || "Pendiente";
+      const docBar = row.doc ? barStyle(row.doc.inicio, row.doc.fin, start, end) : null;
+      const devBar = row.dev ? barStyle(row.dev.inicio, row.dev.fin, start, end) : null;
+      const owner =
+        row.dev ? RESPONSABLES.desarrollo : row.doc ? RESPONSABLES.documento : RESPONSABLES.levantamiento;
+
+      return `
+      <div class="crono-row" data-key="${row.key}">
+        <div class="crono-meta">
+          <div class="crono-item">
+            <strong>${i + 1}. ${escapeHtml(row.nombre)}</strong>
+            <small>${escapeHtml(owner)}</small>
+          </div>
+          <div class="crono-area">${escapeHtml(row.area || "—")}</div>
+          <div class="crono-status">
+            <span class="crono-pill ${statusTone(estado)}">${escapeHtml(estado)}</span>
+            <div class="crono-actions">
+              ${row.docIndex >= 0 ? `<button type="button" class="btn-mini bad" data-del-doc="${row.docIndex}" title="Quitar documento">Doc</button>` : ""}
+              ${row.devIndex >= 0 ? `<button type="button" class="btn-mini bad" data-del-dev="${row.devIndex}" title="Quitar desarrollo">Dev</button>` : ""}
+            </div>
+          </div>
+        </div>
+        <div class="crono-track" style="grid-template-columns: repeat(${months.length}, minmax(72px, 1fr))">
+          ${months.map(() => `<span class="crono-cell"></span>`).join("")}
+          ${todayLeft != null ? `<i class="crono-today" style="left:${todayLeft}"></i>` : ""}
+          ${
+            docBar
+              ? `<div class="crono-bar doc" style="left:${docBar.left};width:${docBar.width}" title="Documento: ${formatDate(row.doc.inicio)} → ${formatDate(row.doc.fin)}">
+                  <span>Doc · fin ${formatDate(row.doc.fin)}</span>
+                </div>`
+              : ""
+          }
+          ${
+            devBar
+              ? `<div class="crono-bar dev" style="left:${devBar.left};width:${devBar.width};top:${docBar ? "28px" : "10px"}" title="Desarrollo: ${formatDate(row.dev.inicio)} → ${formatDate(row.dev.fin)}">
+                  <span>Dev · fin ${formatDate(row.dev.fin)}</span>
+                </div>`
+              : ""
+          }
+        </div>
+      </div>`;
+    })
+    .join("");
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+const state = {
+  decisionGlobal: null,
+};
+
+function pctClass(pct) {
+  if (pct == null) return "pct-na";
+  if (pct >= 90) return "pct-ok";
+  if (pct >= 60) return "pct-mid";
+  return "pct-low";
+}
+
+function dateClass(planFin, realFin) {
+  if (!planFin) return "date-pending";
+  if (!realFin) {
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    return hoy > parseDate(planFin) ? "date-late" : "date-pending";
+  }
+  return parseDate(realFin) <= parseDate(planFin) ? "date-ok" : "date-late";
+}
+
+function avg(nums) {
+  const valid = nums.filter((n) => n != null);
+  if (!valid.length) return 0;
+  return Math.round(valid.reduce((a, b) => a + b, 0) / valid.length);
+}
+
+function stagePct(et) {
+  const metrics = realStageMetrics(et);
+  const finParaPct = metrics.closed ? et.realFin : metrics.effectiveFin;
+  return calcCumplimiento(et.planFin, finParaPct);
+}
+
+function renderKpis() {
+  const total = PANORAMA_TOTAL.total;
+  const enProd = PANORAMA_TOTAL.produccion.count;
+  const enDiseno = PANORAMA_TOTAL.diseno.count;
+  const weightedProd = weightedStagePct("produccion");
+
+  document.getElementById("kpiGrid").innerHTML = `
+    <div class="kpi"><span>Total en seguimiento</span><strong>${total}</strong></div>
+    <div class="kpi"><span>Ya en producción</span><strong>${enProd}</strong></div>
+    <div class="kpi"><span>En diseño</span><strong>${enDiseno}</strong></div>
+    <div class="kpi"><span>% avance producción</span><strong>${formatPct(weightedProd)}</strong></div>
+  `;
+}
+
+function weightedStagePct(stageKey) {
+  let weight = 0;
+  let sum = 0;
+  PANORAMA_DATA.forEach((row) => {
+    const cell = row[stageKey];
+    if (!cell.count) return;
+    weight += cell.count;
+    sum += cell.count * cell.pct;
+  });
+  if (!weight) return 0;
+  return Math.round((sum / weight) * 10) / 10;
+}
+
+/** Datos oficiales del panorama general logrado */
+const PANORAMA_STAGES = [
+  { key: "diseno", label: "Diseño" },
+  { key: "desarrollo", label: "Desarrollo IT" },
+  { key: "qa", label: "Pruebas QA" },
+  { key: "produccion", label: "Producción" },
+];
+
+const PANORAMA_DATA = [
+  {
+    area: "Inspección y Despacho",
+    diseno: { count: 1, pct: 0 },
+    desarrollo: { count: 3, pct: 50 },
+    qa: { count: 0, pct: 0 },
+    produccion: { count: 2, pct: 33.3 },
+    total: 6,
+  },
+  {
+    area: "Reparaciones Box",
+    diseno: { count: 4, pct: 0 },
+    desarrollo: { count: 0, pct: 0 },
+    qa: { count: 1, pct: 20 },
+    produccion: { count: 0, pct: 0 },
+    total: 5,
+  },
+  {
+    area: "Reparaciones Reefer",
+    diseno: { count: 7, pct: 10 },
+    desarrollo: { count: 1, pct: 8 },
+    qa: { count: 1, pct: 8 },
+    produccion: { count: 4, pct: 31 },
+    total: 13,
+  },
+  {
+    area: "Liquidaciones",
+    diseno: { count: 3, pct: 0 },
+    desarrollo: { count: 0, pct: 0 },
+    qa: { count: 0, pct: 0 },
+    produccion: { count: 6, pct: 66.7 },
+    total: 9,
+  },
+  {
+    area: "Operaciones",
+    diseno: { count: 11, pct: 30 },
+    desarrollo: { count: 2, pct: 7 },
+    qa: { count: 4, pct: 12 },
+    produccion: { count: 16, pct: 48 },
+    total: 33,
+  },
+  {
+    area: "Reportería",
+    diseno: { count: 12, pct: 0 },
+    desarrollo: { count: 0, pct: 0 },
+    qa: { count: 0, pct: 0 },
+    produccion: { count: 3, pct: 20 },
+    total: 15,
+  },
+];
+
+const PANORAMA_TOTAL = {
+  diseno: { count: 38, pct: null },
+  desarrollo: { count: 6, pct: null },
+  qa: { count: 6, pct: null },
+  produccion: { count: 31, pct: null },
+  total: 81,
+};
+
+function formatPct(pct) {
+  if (pct == null || pct === "") return "";
+  return `${pct}%`;
+}
+
+function buildPanorama() {
+  const tbody = document.querySelector("#panoramaTable tbody");
+  const tfoot = document.querySelector("#panoramaTable tfoot");
+
+  tbody.innerHTML = PANORAMA_DATA.map(
+    (row, i) => `
+      <tr>
+        <td class="num">${i + 1}</td>
+        <td class="area">${row.area}</td>
+        ${PANORAMA_STAGES.map((s) => stageCell(row[s.key])).join("")}
+        <td class="total-cell">${row.total}</td>
+      </tr>`
+  ).join("");
+
+  tfoot.innerHTML = `
+    <tr>
+      <td colspan="2">TOTAL</td>
+      ${PANORAMA_STAGES.map((s) => stageCellTotal(PANORAMA_TOTAL[s.key].count)).join("")}
+      <td class="total-cell">${PANORAMA_TOTAL.total}</td>
+    </tr>
+  `;
+}
+
+function stageCell({ count, pct }) {
+  return `
+    <td class="stage-cell">
+      <div class="stage-metric">
+        <span class="count">${count}</span>
+        <div class="bar" aria-hidden="true"><i style="width:${pct}%"></i></div>
+        <span class="pct">${formatPct(pct)}</span>
+      </div>
+    </td>`;
+}
+
+function stageCellTotal(count) {
+  return `
+    <td class="stage-cell">
+      <div class="stage-metric total-only">
+        <span class="count">${count}</span>
+      </div>
+    </td>`;
+}
+
+function fillAreaFilter() {
+  const sel = document.getElementById("filterArea");
+  const current = sel.value;
+  sel.innerHTML = `<option value="">Todas</option>`;
+  AREAS.forEach((a) => {
+    const opt = document.createElement("option");
+    opt.value = a;
+    opt.textContent = a;
+    sel.appendChild(opt);
+  });
+  if ([...sel.options].some((o) => o.value === current)) sel.value = current;
+}
+
+/** Completamente listo: todas las etapas base tienen fecha fin real (incluida producción). */
+function isReqListo(req) {
+  return BASE_STAGES.every((s) => !!req.etapas?.[s.key]?.realFin);
+}
+
+let detailBucket = "curso"; // "curso" | "listos"
+
+function filteredReqs() {
+  const area = document.getElementById("filterArea").value;
+  const prio = document.getElementById("filterPrioridad").value;
+  const q = document.getElementById("filterSearch").value.trim().toLowerCase();
+  return requerimientos.filter((r) => {
+    if (area && r.area !== area) return false;
+    if (prio && r.prioridad !== prio) return false;
+    if (q && !r.nombre.toLowerCase().includes(q)) return false;
+    const listo = isReqListo(r);
+    if (detailBucket === "listos") return listo;
+    return !listo;
+  });
+}
+
+function updateDetailBucketUi() {
+  const nCurso = requerimientos.filter((r) => !isReqListo(r)).length;
+  const nListos = requerimientos.filter((r) => isReqListo(r)).length;
+  const countCurso = document.getElementById("countCurso");
+  const countListos = document.getElementById("countListos");
+  if (countCurso) countCurso.textContent = String(nCurso);
+  if (countListos) countListos.textContent = String(nListos);
+
+  document.querySelectorAll(".detail-subtab").forEach((btn) => {
+    const on = btn.dataset.bucket === detailBucket;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+
+  const title = document.getElementById("detailTitle");
+  const subtitle = document.getElementById("detailSubtitle");
+  const hint = document.getElementById("detailHint");
+  if (detailBucket === "listos") {
+    if (title) title.textContent = "Listos en producción";
+    if (subtitle) {
+      subtitle.innerHTML =
+        "Ya cerraron todas las etapas (incluido fin real de producción). Si abres una etapa, vuelven a <strong>En curso</strong>.";
+    }
+    if (hint) {
+      hint.textContent =
+        "Vista de cerrados. Quitar un fin real regresa el ítem a En curso.";
+    }
+  } else {
+    if (title) title.textContent = "En curso y planificados";
+    if (subtitle) {
+      subtitle.innerHTML =
+        "Trabajo activo o planificado. Cuando todas las etapas tengan fin real (incluida producción), pasan a <strong>Listos</strong>.";
+    }
+    if (hint) {
+      hint.textContent =
+        "Tip: clic en el nombre abre la edición; arrastra la fila para reordenar; + Agregar suma una fila nueva.";
+    }
+  }
+}
+
+function setDetailBucket(bucket) {
+  detailBucket = bucket === "listos" ? "listos" : "curso";
+  closeStageDrawer();
+  updateDetailBucketUi();
+  renderDetail();
+}
+
+function durationDays(inicio, fin) {
+  if (!inicio || !fin) return null;
+  const a = parseDate(inicio);
+  const b = parseDate(fin);
+  if (!a || !b) return null;
+  return Math.max(1, daysBetween(a, b) + 1);
+}
+
+function daysOverdue(planFin, effectiveFin) {
+  if (!planFin || !effectiveFin) return null;
+  const plan = parseDate(planFin);
+  const fin = parseDate(effectiveFin);
+  if (!plan || !fin || fin <= plan) return null;
+  return daysBetween(plan, fin);
+}
+
+/**
+ * Métrica de fecha real:
+ * - Parte del inicio real capturado por el usuario
+ * - Si no hay fin real, cuenta días hasta hoy
+ * - Si ya pasó el fin planificado, calcula días de retraso
+ */
+function realStageMetrics(et) {
+  const hoy = todayIso();
+  const planDays = durationDays(et.planInicio, et.planFin);
+
+  if (!et.realInicio) {
+    const planLate = daysOverdue(et.planFin, hoy);
+    return {
+      planDays,
+      realDays: null,
+      delayDays: planLate,
+      effectiveFin: null,
+      closed: false,
+      tone: planLate ? "late" : "",
+      statusLabel: planLate ? `+${planLate}d retraso` : "sin iniciar",
+    };
+  }
+
+  const closed = !!et.realFin;
+  const effectiveFin = closed ? et.realFin : hoy;
+  const realDays = durationDays(et.realInicio, effectiveFin);
+  const delayDays = daysOverdue(et.planFin, effectiveFin);
+
+  let tone = "";
+  let statusLabel = "en curso";
+  if (delayDays) {
+    tone = "late";
+    statusLabel = `+${delayDays}d retraso`;
+  } else if (closed) {
+    tone = "ok";
+    statusLabel = "a tiempo";
+  }
+
+  return {
+    planDays,
+    realDays,
+    delayDays,
+    effectiveFin,
+    closed,
+    tone,
+    statusLabel,
+  };
+}
+
+function delayHtml(metrics) {
+  if (!metrics?.delayDays) return "";
+  return `<span class="delay-pill" title="Días de retraso vs fin planificado">+${metrics.delayDays}d</span>`;
+}
+
+function daysDelta(planDays, realDays) {
+  if (planDays == null || realDays == null) return null;
+  return realDays - planDays;
+}
+
+function barTone(pct) {
+  if (pct == null) return "tone-na";
+  if (pct >= 90) return "tone-ok";
+  if (pct >= 60) return "tone-mid";
+  return "tone-low";
+}
+
+function dateTone(planFin, realFin) {
+  const cls = dateClass(planFin, realFin);
+  if (cls === "date-ok") return "ok";
+  if (cls === "date-late") return "late";
+  return "";
+}
+
+function trackWidth(days, maxDays) {
+  if (days == null || !maxDays) return 0;
+  return Math.max(12, Math.round((days / maxDays) * 100));
+}
+
+function reqStageCell(reqId, stageDef, et) {
+  if (stageDef.clientWait) {
+    return reqClienteEsperaCell(reqId, stageDef, et);
+  }
+
+  const metrics = realStageMetrics(et);
+  const pctLabel = stagePct(et);
+  const pct = pctLabel ?? 0;
+  const planDays = metrics.planDays;
+  const realDays = metrics.realDays;
+  const tone = metrics.tone;
+  const maxDays = Math.max(planDays || 0, realDays || 0, 1);
+
+  const planDaysHtml =
+    planDays == null ? `<strong class="duo-days muted">—</strong>` : `<strong class="duo-days">${planDays}<small>d</small></strong>`;
+  const realDaysHtml =
+    realDays == null
+      ? `<strong class="duo-days muted">—</strong>`
+      : `<strong class="duo-days ${tone}">${realDays}<small>d</small></strong>`;
+
+  const planRange = dateRangeHtml(et.planInicio, et.planFin, {
+    label: stageDef.production ? "Producción planificada" : "Planificado",
+  });
+  const realRange = dateRangeHtml(et.realInicio, metrics.closed ? et.realFin : et.realInicio ? "hoy" : null, {
+    tone,
+    label: "Real",
+  });
+
+  return `
+    <td class="stage-cell">
+      <button
+        type="button"
+        class="stage-hit"
+        data-req="${reqId}"
+        data-stage="${stageDef.key}"
+        title="Ver tarjeta de fechas — ${stageDef.label}"
+      >
+        <div class="stage-visual group-${stageDef.group || "default"} ${stageDef.production ? "prod" : ""}">
+          <div class="stage-metric compact">
+            <div class="bar ${barTone(pctLabel)}" aria-hidden="true"><i style="width:${pct}%"></i></div>
+            <span class="pct">${pctLabel == null ? "—" : pctLabel + "%"}</span>
+          </div>
+          <div class="duo" aria-label="Planificado versus real en curso">
+            <div class="duo-col">
+              <span class="duo-lbl">${stageDef.production ? "Prod" : "Plan"}</span>
+              ${planDaysHtml}
+              ${planRange}
+              <div class="duo-track" aria-hidden="true"><i style="width:${trackWidth(planDays, maxDays)}%"></i></div>
+            </div>
+            <div class="duo-divider" aria-hidden="true"></div>
+            <div class="duo-col">
+              <span class="duo-lbl">Real</span>
+              ${realDaysHtml}
+              ${realRange}
+              ${delayHtml(metrics)}
+              <div class="duo-track real ${tone}" aria-hidden="true"><i style="width:${trackWidth(realDays, maxDays)}%"></i></div>
+            </div>
+          </div>
+          <div class="duo-delta ${tone || "muted"}">${metrics.statusLabel}</div>
+          <div class="stage-owner">${et.responsable || "Sin responsable"}</div>
+        </div>
+      </button>
+    </td>`;
+}
+
+function clientWaitLabels(stageKey) {
+  if (stageKey === "pruebasCompletas") {
+    return {
+      title: "Días en pruebas completas del cliente",
+      aria: "Días desde la entrega a pruebas completas",
+      startTitle: "Fecha inicio / entrega",
+      endTitle: "Fecha completado",
+      drawerStart: "Entrega a pruebas completas",
+      drawerEnd: "Completado",
+      emptyStatus: "sin entregar",
+    };
+  }
+  return {
+    title: "Días desde el envío",
+    aria: "Días desde el envío a aprobación",
+    startTitle: "Fecha enviado",
+    endTitle: "Fecha aprobado",
+    drawerStart: "Fecha enviado a aprobar",
+    drawerEnd: "Aprobado",
+    emptyStatus: "sin enviar",
+  };
+}
+
+function reqClienteEsperaCell(reqId, stageDef, et) {
+  const labels = clientWaitLabels(stageDef.key);
+  const inicio = et.realInicio || et.planInicio;
+  const fin = et.realFin;
+  const metrics = realStageMetrics({
+    planInicio: et.planInicio,
+    planFin: et.planFin,
+    realInicio: inicio,
+    realFin: fin,
+  });
+  const realDays = metrics.realDays;
+  const done = !!fin;
+  const pct = done ? 100 : inicio ? (metrics.delayDays ? 40 : 60) : 0;
+  const tone = metrics.tone;
+  const statusLabel = !inicio
+    ? labels.emptyStatus
+    : metrics.statusLabel;
+
+  const realDaysHtml =
+    realDays == null
+      ? `<strong class="duo-days muted">—</strong>`
+      : `<strong class="duo-days ${tone}">${realDays}<small>d</small></strong>`;
+
+  const realRange = dateRangeHtml(inicio, done ? fin : inicio ? "hoy" : null, {
+    tone,
+    label: labels.title,
+  });
+
+  return `
+    <td class="stage-cell">
+      <button
+        type="button"
+        class="stage-hit"
+        data-req="${reqId}"
+        data-stage="${stageDef.key}"
+        title="${labels.title}"
+      >
+        <div class="stage-visual group-cliente">
+          <div class="stage-metric compact">
+            <div class="bar ${barTone(pct)}" aria-hidden="true"><i style="width:${pct}%"></i></div>
+            <span class="pct">${pct}%</span>
+          </div>
+          <div class="duo duo-solo" aria-label="${labels.aria}">
+            <div class="duo-col">
+              <span class="duo-lbl">Real</span>
+              ${realDaysHtml}
+              ${realRange}
+              ${delayHtml(metrics)}
+              <div class="duo-track real ${tone}" aria-hidden="true"><i style="width:${realDays == null ? 0 : 100}%"></i></div>
+            </div>
+          </div>
+          <div class="duo-delta ${tone || "muted"}">${statusLabel}</div>
+          <div class="stage-owner">${et.responsable || "Cliente"}</div>
+        </div>
+      </button>
+    </td>`;
+}
+
+function slugEstado(estado) {
+  return String(estado || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "-");
+}
+
+function renderDetailHead() {
+  const thead = document.querySelector("#detailTable thead tr");
+  if (!thead) return;
+  const stageHeads = STAGES.map((s) => {
+    const cls =
+      s.group === "cliente"
+        ? "col-cliente"
+        : s.group === "diseno"
+          ? "col-diseno"
+          : s.group === "proyectos"
+            ? "col-proyectos"
+            : s.custom
+              ? "col-extra"
+              : "";
+    const removeBtn = s.custom
+      ? `<button type="button" class="th-remove" data-remove-stage="${s.key}" title="Quitar columna">×</button>`
+      : "";
+    return `<th class="${cls}">${escapeHtml(s.label)}${removeBtn}</th>`;
+  }).join("");
+  thead.innerHTML = `
+    <th>N°</th>
+    <th>Requerimiento</th>
+    <th>Prioridad</th>
+    <th>Área</th>
+    ${stageHeads}
+    <th>Cumpl. total</th>
+    <th>Decisión</th>
+  `;
+}
+
+function renderDetail() {
+  updateDetailBucketUi();
+  renderDetailHead();
+  const tbody = document.querySelector("#detailTable tbody");
+  const rows = filteredReqs();
+  const keepReq = activeEditReqId;
+  const colSpan = 6 + STAGES.length;
+
+  if (!rows.length) {
+    const hasFilters =
+      document.getElementById("filterArea").value ||
+      document.getElementById("filterPrioridad").value ||
+      document.getElementById("filterSearch").value.trim();
+    const isListos = detailBucket === "listos";
+    tbody.innerHTML = `
+      <tr class="empty-row">
+        <td colspan="${colSpan}">
+          <div class="empty-state">
+            <p class="empty-state-title">${
+              isListos
+                ? hasFilters
+                  ? "Ningún listo coincide con el filtro"
+                  : "Aún no hay requerimientos listos"
+                : hasFilters
+                  ? "Ningún requerimiento coincide con el filtro"
+                  : "No hay requerimientos en curso"
+            }</p>
+            <p class="empty-state-text">${
+              isListos
+                ? hasFilters
+                  ? "Prueba limpiar área, prioridad o búsqueda."
+                  : "Cuando un requerimiento cierre todas las etapas con fin real, aparecerá aquí."
+                : hasFilters
+                  ? "Prueba limpiar área, prioridad o búsqueda, o agrega uno nuevo."
+                  : "Agrega una fila con + Agregar o crea un ítem en Cronograma y sincroniza."
+            }</p>
+            ${
+              hasFilters
+                ? `<button type="button" class="btn ghost" data-clear-filters>Limpiar filtros</button>`
+                : !isListos
+                  ? `<button type="button" class="btn primary" data-open-add-req>+ Agregar requerimiento</button>`
+                  : ""
+            }
+          </div>
+        </td>
+      </tr>`;
+  } else {
+    tbody.innerHTML = rows
+      .map((r) => {
+        const totalPct = avg(STAGES.map((s) => stagePct(r.etapas[s.key])));
+        const stageCells = STAGES.map((s) => reqStageCell(r.id, s, r.etapas[s.key])).join("");
+        const rowActive = keepReq === r.id ? "req-row-active" : "";
+        const listoBadge = isReqListo(r)
+          ? `<span class="req-estado estado-prod-listo">Listo · producción</span>`
+          : "";
+
+        return `
+        <tr data-id="${r.id}" class="req-row ${rowActive}" draggable="true" title="Arrastra la fila para cambiar el orden">
+          <td class="num">
+            <span class="drag-handle" data-drag-handle title="Arrastrar para reordenar" aria-label="Arrastrar">⋮⋮</span>
+            <span class="num-val">${r.id}</span>
+          </td>
+          <td class="req-cell" data-open-req="${r.id}" title="Editar fechas del requerimiento">
+            <div class="req-name">${r.nombre}</div>
+            <div class="req-estados">
+              <span class="req-estado estado-dif-${r.dificultad || "media"}">Dif: ${(r.dificultad || "media").toUpperCase()}</span>
+              ${r.estadoDoc ? `<span class="req-estado estado-${slugEstado(r.estadoDoc)}">Doc: ${r.estadoDoc}</span>` : ""}
+              ${r.estadoDev ? `<span class="req-estado estado-${slugEstado(r.estadoDev)}">Dev: ${r.estadoDev}</span>` : ""}
+              ${!r.estadoDoc && !r.estadoDev ? `<span class="req-estado estado-${slugEstado(r.estadoFuente)}">${r.estadoFuente}</span>` : ""}
+              ${listoBadge}
+            </div>
+          </td>
+          <td class="prio-cell"><span class="badge ${r.prioridad.toLowerCase()}">${r.prioridad}</span></td>
+          <td class="area-cell">${r.area}</td>
+          ${stageCells}
+          <td class="total-cell"><span class="pct-pill ${pctClass(totalPct)}">${totalPct}%</span></td>
+          <td>
+            <div class="mini-actions">
+              <button type="button" class="ok" data-action="aprobado">Aprobar</button>
+              <button type="button" class="warn" data-action="mejoras">Mejoras</button>
+              <button type="button" class="bad" data-action="rechazado">Rechazar</button>
+            </div>
+            <div class="req-status ${r.decision}">${labelDecision(r.decision)}</div>
+          </td>
+        </tr>`;
+      })
+      .join("");
+  }
+
+  if (keepReq) {
+    const still = requerimientos.find((r) => r.id === keepReq);
+    const visible = rows.some((r) => r.id === keepReq);
+    if (still && visible) {
+      openReqEditor(keepReq);
+    } else if (still) {
+      const next = isReqListo(still) ? "listos" : "curso";
+      if (next !== detailBucket) {
+        detailBucket = next;
+        renderDetail();
+        return;
+      }
+      closeStageDrawer();
+    } else {
+      closeStageDrawer();
+    }
+  }
+}
+
+function dateInputVal(iso) {
+  return iso || "";
+}
+
+function editStageSection(req, stageDef) {
+  const et = req.etapas[stageDef.key];
+  const metrics = realStageMetrics(
+    stageDef.clientWait
+      ? {
+          planInicio: et.planInicio,
+          planFin: et.planFin,
+          realInicio: et.realInicio || et.planInicio,
+          realFin: et.realFin,
+        }
+      : et
+  );
+  const labels = stageDef.clientWait ? clientWaitLabels(stageDef.key) : null;
+  const finPlanLabel = stageDef.production ? "Fin / F. producción plan." : "Fin planificado";
+  const finRealLabel = stageDef.clientWait
+    ? labels.endTitle
+    : stageDef.production
+      ? "Fin / F. producción real"
+      : "Fin real";
+  const iniRealLabel = stageDef.clientWait ? labels.startTitle : "Inicio real";
+  const iniPlanLabel = stageDef.clientWait ? "Inicio plazo estimado" : "Inicio planificado";
+
+  return `
+    <section class="edit-stage group-${stageDef.group || "default"}" id="edit-stage-${stageDef.key}" data-stage="${stageDef.key}">
+      <header class="edit-stage-head">
+        <div>
+          <h4>${stageDef.label}</h4>
+          <p class="edit-stage-role">${ROLES[stageDef.key] || ""}</p>
+        </div>
+        <span class="edit-stage-status ${metrics.tone || "muted"}">${metrics.statusLabel}</span>
+      </header>
+      <div class="edit-stage-grid">
+        <label class="edit-field">
+          <span>${iniPlanLabel}</span>
+          <input type="date" name="${stageDef.key}.planInicio" value="${dateInputVal(et.planInicio)}" />
+        </label>
+        <label class="edit-field">
+          <span>${finPlanLabel}</span>
+          <input type="date" name="${stageDef.key}.planFin" value="${dateInputVal(et.planFin)}" />
+        </label>
+        <label class="edit-field">
+          <span>${iniRealLabel}</span>
+          <input type="date" name="${stageDef.key}.realInicio" value="${dateInputVal(et.realInicio)}" />
+        </label>
+        <label class="edit-field">
+          <span>${finRealLabel}</span>
+          <input type="date" name="${stageDef.key}.realFin" value="${dateInputVal(et.realFin)}" />
+        </label>
+        <label class="edit-field full">
+          <span>Responsable</span>
+          <input type="text" name="${stageDef.key}.responsable" value="${escapeHtml(et.responsable || "")}" />
+        </label>
+        <label class="edit-field full">
+          <span>Avance / nota</span>
+          <textarea name="${stageDef.key}.avance" rows="2">${escapeHtml(et.avance || "")}</textarea>
+        </label>
+      </div>
+      ${metrics.delayDays ? `<p class="edit-stage-delay">+${metrics.delayDays}d retraso vs fin planificado</p>` : ""}
+    </section>`;
+}
+
+function openReqEditor(reqId, focusStageKey) {
+  const req = requerimientos.find((r) => r.id === reqId);
+  if (!req) return;
+
+  activeEditReqId = reqId;
+  const totalPct = avg(STAGES.map((s) => stagePct(req.etapas[s.key])));
+  const layout = document.querySelector(".detail-layout");
+  const drawer = document.getElementById("stageDrawer");
+
+  layout.classList.add("with-drawer");
+  drawer.hidden = false;
+
+  document.querySelectorAll("#detailTable tbody tr").forEach((tr) => {
+    tr.classList.toggle("req-row-active", Number(tr.dataset.id) === reqId);
+  });
+
+  document.getElementById("drawerStage").textContent = isReqListo(req)
+    ? "Listo · editar fechas"
+    : "Editar fechas por etapa";
+  document.getElementById("drawerReq").textContent = req.nombre;
+  document.getElementById("drawerMeta").innerHTML = `
+    <span class="badge ${req.prioridad.toLowerCase()}">${req.prioridad}</span>
+    <span class="pct-pill ${pctClass(totalPct)}">${totalPct}%</span>
+    <span class="badge baja">${req.area}</span>
+    ${isReqListo(req) ? `<span class="badge listo-move">En producción</span>` : ""}
+  `;
+
+  document.getElementById("drawerGrid").innerHTML = `
+    <form id="reqEditForm" class="req-edit-form">
+      <p class="edit-intro">Completa <strong>inicio</strong> y <strong>fin</strong> (plan y real). El retraso se calcula solo si el real supera el plan. Guarda para ver el cambio en la tabla.</p>
+      ${STAGES.map((s) => editStageSection(req, s)).join("")}
+    </form>
+  `;
+
+  document.getElementById("drawerActions").innerHTML = `
+    <div class="drawer-actions-main">
+      <button type="submit" form="reqEditForm" class="btn primary" id="btnSaveEdit">Guardar cambios</button>
+      <button type="button" class="btn ghost" id="btnCancelEdit">Cerrar</button>
+    </div>
+    <div class="drawer-actions-secondary">
+      <button type="button" class="btn ghost" data-action="aprobado" data-req="${req.id}">Aprobar</button>
+      <button type="button" class="btn ghost" data-action="mejoras" data-req="${req.id}">Solicitar mejoras</button>
+      <button type="button" class="btn ghost" data-action="rechazado" data-req="${req.id}">Rechazar</button>
+    </div>
+  `;
+
+  const form = document.getElementById("reqEditForm");
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    saveReqEditor(reqId, form);
+  });
+
+  document.getElementById("btnCancelEdit")?.addEventListener("click", closeStageDrawer);
+
+  if (focusStageKey) {
+    requestAnimationFrame(() => {
+      document.getElementById(`edit-stage-${focusStageKey}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  }
+}
+
+function blankToNull(v) {
+  const s = String(v || "").trim();
+  return s || null;
+}
+
+function saveReqEditor(reqId, form) {
+  const req = requerimientos.find((r) => r.id === reqId);
+  if (!req) return;
+
+  const fd = new FormData(form);
+  const key = normName(req.nombre);
+  if (!stageEdits[key]) stageEdits[key] = {};
+
+  STAGES.forEach((s) => {
+    const patch = {
+      planInicio: blankToNull(fd.get(`${s.key}.planInicio`)),
+      planFin: blankToNull(fd.get(`${s.key}.planFin`)),
+      realInicio: blankToNull(fd.get(`${s.key}.realInicio`)),
+      realFin: blankToNull(fd.get(`${s.key}.realFin`)),
+      responsable: blankToNull(fd.get(`${s.key}.responsable`)) || req.etapas[s.key].responsable,
+      avance: blankToNull(fd.get(`${s.key}.avance`)) || "",
+    };
+    Object.assign(req.etapas[s.key], patch);
+    stageEdits[key][s.key] = { ...patch };
+  });
+
+  saveStageEdits();
+  const listo = isReqListo(req);
+  const wasListos = detailBucket === "listos";
+  detailBucket = listo ? "listos" : "curso";
+  activeEditReqId = reqId;
+  renderDetail();
+  renderDecisionSummary();
+
+  const drawer = document.getElementById("stageDrawer");
+  if (drawer) {
+    drawer.classList.add("is-saved");
+    setTimeout(() => drawer.classList.remove("is-saved"), 900);
+  }
+  const saveBtn = document.getElementById("btnSaveEdit");
+  if (saveBtn) {
+    const prev = saveBtn.textContent;
+    saveBtn.textContent = "Guardado ✓";
+    setTimeout(() => {
+      if (saveBtn.isConnected) saveBtn.textContent = prev;
+    }, 1200);
+  }
+  showToast(
+    listo && !wasListos
+      ? `"${req.nombre}" guardado y movido a Listos`
+      : `Cambios guardados en "${req.nombre}"`,
+    "ok"
+  );
+}
+
+function closeStageDrawer() {
+  activeEditReqId = null;
+  document.querySelector(".detail-layout")?.classList.remove("with-drawer");
+  const drawer = document.getElementById("stageDrawer");
+  if (drawer) drawer.hidden = true;
+  document.querySelectorAll(".stage-hit.active").forEach((el) => el.classList.remove("active"));
+  document.querySelectorAll("#detailTable tbody tr.req-row-active").forEach((el) => el.classList.remove("req-row-active"));
+}
+
+function labelDecision(d) {
+  return (
+    {
+      pendiente: "Pendiente",
+      aprobado: "Aprobado",
+      mejoras: "Con mejoras",
+      rechazado: "Rechazado",
+    }[d] || d
+  );
+}
+
+function renderDecisionSummary() {
+  const counts = { pendiente: 0, aprobado: 0, mejoras: 0, rechazado: 0 };
+  requerimientos.forEach((r) => {
+    counts[r.decision] = (counts[r.decision] || 0) + 1;
+  });
+
+  const byPrio = ["Alta", "Media", "Baja"].map(
+    (p) => `${p}: ${requerimientos.filter((r) => r.prioridad === p).length}`
+  );
+
+  document.getElementById("decisionSummary").innerHTML = `
+    <h3>Estado de la revisión</h3>
+    <div class="stat-list">
+      <div class="stat-item"><span>Pendientes</span><strong>${counts.pendiente}</strong></div>
+      <div class="stat-item"><span>Aprobados</span><strong>${counts.aprobado}</strong></div>
+      <div class="stat-item"><span>Con mejoras</span><strong>${counts.mejoras}</strong></div>
+      <div class="stat-item"><span>Rechazados</span><strong>${counts.rechazado}</strong></div>
+      <div class="stat-item"><span>Por prioridad</span><strong>${byPrio.join(" · ")}</strong></div>
+      <div class="stat-item"><span>Áreas cubiertas</span><strong>${AREAS.length}</strong></div>
+      <div class="stat-item"><span>En curso / planificados</span><strong>${requerimientos.filter((r) => !isReqListo(r)).length}</strong></div>
+      <div class="stat-item"><span>Listos en producción</span><strong>${requerimientos.filter((r) => isReqListo(r)).length}</strong></div>
+      <div class="stat-item"><span>Requerimientos totales</span><strong>${requerimientos.length}</strong></div>
+    </div>
+  `;
+}
+
+/* Tabs */
+function activateTab(id) {
+  document.querySelectorAll(".tab[data-tab]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.tab === id);
+    b.setAttribute("aria-selected", b.dataset.tab === id ? "true" : "false");
+  });
+
+  document.querySelectorAll(".panel").forEach((p) => {
+    const match = p.id === `panel-${id}`;
+    p.classList.toggle("active", match);
+    p.hidden = !match;
+  });
+  if (id === "decision") renderDecisionSummary();
+  if (id === "cronograma") renderCronograma();
+}
+
+document.querySelectorAll(".tab[data-tab]").forEach((btn) => {
+  btn.addEventListener("click", () => activateTab(btn.dataset.tab));
+});
+
+/* Filters */
+["filterArea", "filterPrioridad", "filterSearch"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", () => {
+    closeStageDrawer();
+    renderDetail();
+  });
+});
+
+document.querySelectorAll(".detail-subtab").forEach((btn) => {
+  btn.addEventListener("click", () => setDetailBucket(btn.dataset.bucket));
+});
+
+function addRequirementFromForm(form) {
+  const row = formToRow(form);
+  if (!row.nombre || !row.area || !row.inicio || !row.fin) return null;
+  const payload = {
+    nombre: row.nombre,
+    area: row.area,
+    inicio: row.inicio,
+    fin: row.fin,
+    estado: row.estado || "Pendiente",
+  };
+  if (row.aplica === "documento" || row.aplica === "ambos") REQ_FUENTE.push({ ...payload });
+  if (row.aplica === "desarrollo" || row.aplica === "ambos") DEV_FUENTE.push({ ...payload });
+  saveFuentes();
+  refreshAppFromData();
+  return requerimientos.find((r) => namesMatch(r.nombre, payload.nombre)) || null;
+}
+
+document.getElementById("btnAddReq").addEventListener("click", () => {
+  const form = document.getElementById("formNuevoReq");
+  const show = form.hidden;
+  form.hidden = !show;
+  if (show) {
+    setDetailBucket("curso");
+    if (!form.inicio.value) form.inicio.value = todayIso();
+    if (!form.fin.value) form.fin.value = todayIso();
+    form.nombre?.focus();
+  }
+});
+
+document.getElementById("btnCancelAddReq").addEventListener("click", () => {
+  const form = document.getElementById("formNuevoReq");
+  form.reset();
+  form.hidden = true;
+});
+
+document.getElementById("formNuevoReq").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const created = addRequirementFromForm(e.target);
+  e.target.reset();
+  e.target.hidden = true;
+  detailBucket = "curso";
+  updateDetailBucketUi();
+  renderDetail();
+  if (created) {
+    openReqEditor(created.id);
+    showToast(`"${created.nombre}" agregado. Completa las fechas en el panel.`, "ok");
+  } else {
+    showToast("No se pudo agregar el requerimiento. Revisa los datos.", "warn");
+  }
+});
+
+function clearDetailFilters() {
+  const area = document.getElementById("filterArea");
+  const prio = document.getElementById("filterPrioridad");
+  const search = document.getElementById("filterSearch");
+  if (area) area.value = "";
+  if (prio) prio.value = "";
+  if (search) search.value = "";
+  renderDetail();
+}
+
+document.getElementById("btnClearFilters")?.addEventListener("click", clearDetailFilters);
+
+function showToast(message, tone = "ok") {
+  const host = document.getElementById("toastHost");
+  if (!host || !message) return;
+  const el = document.createElement("div");
+  el.className = `toast ${tone}`;
+  el.textContent = message;
+  host.appendChild(el);
+  setTimeout(() => {
+    el.classList.add("leaving");
+    setTimeout(() => el.remove(), 220);
+  }, 2800);
+}
+
+/* Stage / requirement → editor drawer + drag reorder */
+const detailTbody = document.querySelector("#detailTable tbody");
+let dragAllowed = false;
+let dragReqId = null;
+let dragMoved = false;
+
+detailTbody.addEventListener("mousedown", (e) => {
+  const interactive = e.target.closest(".stage-hit, button, input, textarea, select, a, .mini-actions");
+  dragAllowed = !interactive && !!e.target.closest("tr[data-id]:not(.empty-row)");
+  dragMoved = false;
+});
+
+detailTbody.addEventListener("dragstart", (e) => {
+  const tr = e.target.closest("tr[data-id]");
+  if (!tr || !dragAllowed || tr.classList.contains("empty-row")) {
+    e.preventDefault();
+    return;
+  }
+  dragReqId = Number(tr.dataset.id);
+  dragMoved = true;
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", String(dragReqId));
+  tr.classList.add("is-dragging");
+  detailTbody.classList.add("is-reordering");
+});
+
+detailTbody.addEventListener("dragend", () => {
+  dragAllowed = false;
+  dragReqId = null;
+  detailTbody.classList.remove("is-reordering");
+  detailTbody.querySelectorAll("tr.is-dragging, tr.drag-over").forEach((el) => {
+    el.classList.remove("is-dragging", "drag-over");
+  });
+});
+
+detailTbody.addEventListener("dragover", (e) => {
+  const tr = e.target.closest("tr[data-id]");
+  if (!tr || !dragReqId || tr.classList.contains("empty-row")) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+  detailTbody.querySelectorAll("tr.drag-over").forEach((el) => el.classList.remove("drag-over"));
+  if (Number(tr.dataset.id) !== dragReqId) tr.classList.add("drag-over");
+});
+
+detailTbody.addEventListener("dragleave", (e) => {
+  const tr = e.target.closest("tr[data-id]");
+  if (tr && !tr.contains(e.relatedTarget)) tr.classList.remove("drag-over");
+});
+
+detailTbody.addEventListener("drop", (e) => {
+  e.preventDefault();
+  const tr = e.target.closest("tr[data-id]");
+  if (!tr || !dragReqId) return;
+  const toId = Number(tr.dataset.id);
+  tr.classList.remove("drag-over");
+  if (reorderRequirement(dragReqId, toId)) {
+    renderDetail();
+  }
+});
+
+detailTbody.addEventListener("click", (e) => {
+  if (dragMoved) {
+    dragMoved = false;
+    return;
+  }
+
+  if (e.target.closest("[data-clear-filters]")) {
+    e.preventDefault();
+    clearDetailFilters();
+    return;
+  }
+  if (e.target.closest("[data-open-add-req]")) {
+    e.preventDefault();
+    document.getElementById("btnAddReq")?.click();
+    return;
+  }
+
+  const decisionBtn = e.target.closest("button[data-action]");
+  if (decisionBtn) {
+    const tr = decisionBtn.closest("tr");
+    const id = Number(tr.dataset.id);
+    const req = requerimientos.find((r) => r.id === id);
+    pendingAction = { id, action: decisionBtn.dataset.action };
+    document.getElementById("modalTitle").textContent = `Marcar como ${labelDecision(decisionBtn.dataset.action)}`;
+    document.getElementById("modalReq").textContent = req.nombre;
+    document.getElementById("modalComment").value = req.comentario || "";
+    modal.showModal();
+    return;
+  }
+
+  const stageBtn = e.target.closest(".stage-hit");
+  if (stageBtn) {
+    document.querySelectorAll(".stage-hit.active").forEach((el) => el.classList.remove("active"));
+    stageBtn.classList.add("active");
+    openReqEditor(Number(stageBtn.dataset.req), stageBtn.dataset.stage);
+    return;
+  }
+
+  const reqCell = e.target.closest("[data-open-req]");
+  if (reqCell) {
+    openReqEditor(Number(reqCell.dataset.openReq));
+  }
+});
+
+document.getElementById("drawerClose").addEventListener("click", closeStageDrawer);
+
+document.getElementById("drawerActions").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-action]");
+  if (!btn) return;
+  const id = Number(btn.dataset.req);
+  const req = requerimientos.find((r) => r.id === id);
+  pendingAction = { id, action: btn.dataset.action };
+  document.getElementById("modalTitle").textContent = `Marcar como ${labelDecision(btn.dataset.action)}`;
+  document.getElementById("modalReq").textContent = req.nombre;
+  document.getElementById("modalComment").value = req.comentario || "";
+  modal.showModal();
+});
+
+/* Per-requirement decision modal */
+let pendingAction = null;
+const modal = document.getElementById("decisionModal");
+
+modal.addEventListener("close", () => {
+  if (modal.returnValue !== "confirm" || !pendingAction) return;
+  const req = requerimientos.find((r) => r.id === pendingAction.id);
+  req.decision = pendingAction.action;
+  req.comentario = document.getElementById("modalComment").value.trim();
+  pendingAction = null;
+  renderDetail();
+  renderDecisionSummary();
+});
+
+document.getElementById("modalConfirm").addEventListener("click", (e) => {
+  e.preventDefault();
+  modal.close("confirm");
+});
+
+/* Global decision form */
+document.getElementById("decisionForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const resolucion = new FormData(e.target).get("resolucion");
+  const revisor = document.getElementById("revisor").value.trim();
+  const fecha = document.getElementById("fechaDecision").value;
+  const obs = document.getElementById("observaciones").value.trim();
+
+  state.decisionGlobal = { resolucion, revisor, fecha, obs, at: new Date().toISOString() };
+  if (typeof window.__linkprojectSchedulePersist === "function") window.__linkprojectSchedulePersist();
+
+  const pill = document.getElementById("estadoGeneralPill");
+  pill.classList.remove("aprobado", "mejoras", "rechazado");
+  const map = {
+    aprobar: { cls: "aprobado", text: "Aprobado por gerencia" },
+    mejoras: { cls: "mejoras", text: "Aprobado con mejoras" },
+    rechazar: { cls: "rechazado", text: "Rechazado por gerencia" },
+  };
+  const m = map[resolucion];
+  pill.classList.add(m.cls);
+  pill.querySelector("strong").textContent = m.text;
+
+  const result = document.getElementById("decisionResult");
+  result.hidden = false;
+  result.textContent = `Decisión registrada: ${m.text} · ${revisor} · ${formatDate(fecha)}${obs ? " — " + obs : ""}`;
+  result.style.background =
+    resolucion === "aprobar" ? "var(--ok-bg)" : resolucion === "mejoras" ? "var(--warn-bg)" : "var(--danger-bg)";
+  result.style.color =
+    resolucion === "aprobar" ? "var(--ok)" : resolucion === "mejoras" ? "var(--warn)" : "var(--danger)";
+  showToast(m.text, resolucion === "rechazar" ? "warn" : "ok");
+});
+
+document.getElementById("btnExport").addEventListener("click", () => {
+  const payload = {
+    generado: new Date().toISOString(),
+    decisionGlobal: state.decisionGlobal,
+    fuentes: { doc: REQ_FUENTE, dev: DEV_FUENTE },
+    requerimientos: requerimientos.map((r) => ({
+      id: r.id,
+      nombre: r.nombre,
+      prioridad: r.prioridad,
+      area: r.area,
+      decision: r.decision,
+      comentario: r.comentario,
+      etapas: Object.fromEntries(
+        STAGES.map((s) => {
+          const et = r.etapas[s.key];
+          return [
+            s.key,
+            {
+              planInicio: et.planInicio,
+              planFin: et.planFin,
+              realInicio: et.realInicio,
+              realFin: et.realFin,
+              responsable: et.responsable,
+              avance: et.avance,
+              cumplimiento: stagePct(et),
+              diasRetraso: realStageMetrics(et).delayDays,
+              etiquetaFin: s.production ? "fecha_produccion" : "fecha_fin_planificada",
+            },
+          ];
+        })
+      ),
+    })),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "linkproject-decision-gerencia.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+/* Cronograma */
+document.getElementById("formCronograma").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const row = formToRow(e.target);
+  if (!row.nombre || !row.area || !row.inicio || !row.fin) return;
+  const payload = {
+    nombre: row.nombre,
+    area: row.area,
+    inicio: row.inicio,
+    fin: row.fin,
+    estado: row.estado,
+  };
+  if (row.aplica === "documento" || row.aplica === "ambos") REQ_FUENTE.push({ ...payload });
+  if (row.aplica === "desarrollo" || row.aplica === "ambos") DEV_FUENTE.push({ ...payload });
+  saveFuentes();
+  refreshAppFromData();
+  e.target.reset();
+  e.target.hidden = true;
+});
+
+document.getElementById("btnToggleItemForm").addEventListener("click", () => {
+  const form = document.getElementById("formCronograma");
+  form.hidden = !form.hidden;
+});
+
+document.getElementById("btnCancelItemForm").addEventListener("click", () => {
+  const form = document.getElementById("formCronograma");
+  form.reset();
+  form.hidden = true;
+});
+
+document.getElementById("cronoBody").addEventListener("click", (e) => {
+  const delDoc = e.target.closest("[data-del-doc]");
+  const delDev = e.target.closest("[data-del-dev]");
+  if (delDoc) {
+    REQ_FUENTE.splice(Number(delDoc.dataset.delDoc), 1);
+    saveFuentes();
+    refreshAppFromData();
+    return;
+  }
+  if (delDev) {
+    DEV_FUENTE.splice(Number(delDev.dataset.delDev), 1);
+    saveFuentes();
+    refreshAppFromData();
+  }
+});
+
+document.getElementById("btnApplyData").addEventListener("click", () => {
+  saveFuentes();
+  refreshAppFromData();
+  activateTab("detalle");
+  showToast("Cronograma sincronizado con Detalle", "ok");
+});
+
+document.getElementById("btnResetData").addEventListener("click", () => {
+  if (!confirm("¿Restaurar los datos de ejemplo y reemplazar lo cargado?")) return;
+  REQ_FUENTE = cloneFuente(DEFAULT_REQ_FUENTE);
+  DEV_FUENTE = cloneFuente(DEFAULT_DEV_FUENTE);
+  stageEdits = {};
+  reqOrder = [];
+  customStages = [];
+  saveFuentes();
+  saveStageEdits();
+  saveReqOrder();
+  saveCustomStages();
+  rebuildStagesList();
+  closeStageDrawer();
+  refreshAppFromData();
+  showToast("Datos de ejemplo restaurados", "ok");
+});
+
+/* Init — espera datos remotos vía auth-bridge (__linkprojectApplyRemote) */
+function applyDecisionUi(decision) {
+  if (!decision || !decision.resolucion) return;
+  const pill = document.getElementById("estadoGeneralPill");
+  if (!pill) return;
+  pill.classList.remove("aprobado", "mejoras", "rechazado");
+  const map = {
+    aprobar: { cls: "aprobado", text: "Aprobado por gerencia" },
+    mejoras: { cls: "mejoras", text: "Aprobado con mejoras" },
+    rechazar: { cls: "rechazado", text: "Rechazado por gerencia" },
+  };
+  const m = map[decision.resolucion];
+  if (!m) return;
+  pill.classList.add(m.cls);
+  const strong = pill.querySelector("strong");
+  if (strong) strong.textContent = m.text;
+}
+
+window.__linkprojectApplyRemote = function applyRemote(data) {
+  const payload = data || {};
+  if (Array.isArray(payload.doc) && Array.isArray(payload.dev)) {
+    if (payload.doc.length || payload.dev.length) {
+      REQ_FUENTE = payload.doc.map((r) => ({ ...r }));
+      DEV_FUENTE = payload.dev.map((r) => ({ ...r }));
+    }
+  }
+  if (payload.stageEdits && typeof payload.stageEdits === "object") {
+    stageEdits = payload.stageEdits;
+  }
+  if (Array.isArray(payload.reqOrder)) {
+    reqOrder = payload.reqOrder.slice();
+  }
+  if (Array.isArray(payload.customStages)) {
+    customStages = payload.customStages
+      .filter((s) => s && s.key && s.label)
+      .map((s) => ({
+        key: String(s.key),
+        label: String(s.label),
+        group: s.group || "default",
+        custom: true,
+      }));
+    rebuildStagesList();
+  }
+  if (payload.decisionGlobal) {
+    state.decisionGlobal = payload.decisionGlobal;
+    applyDecisionUi(payload.decisionGlobal);
+  }
+
+  // Cache local de respaldo
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ doc: REQ_FUENTE, dev: DEV_FUENTE }));
+    localStorage.setItem(STAGE_EDITS_KEY, JSON.stringify(stageEdits));
+    localStorage.setItem(REQ_ORDER_KEY, JSON.stringify(reqOrder));
+    localStorage.setItem(CUSTOM_STAGES_KEY, JSON.stringify(customStages));
+  } catch (_) {
+    /* ignore */
+  }
+
+  refreshAppFromData();
+};
+
+(function init() {
+  const hoy = new Date();
+  document.getElementById("fechaCorte").textContent = hoy.toLocaleDateString("es-EC", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  document.getElementById("fechaDecision").value = hoy.toISOString().slice(0, 10);
+  // Datos de ejemplo locales hasta que el bridge hidrate desde el servidor
+  loadCustomStages();
+  loadFuentes();
+  loadStageEdits();
+  loadReqOrder();
+  refreshAppFromData();
+})();

@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LinkProject — Seguimiento de Requerimientos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">LP</div>
+        <div>
+          <p class="brand-name">LinkProject</p>
+          <p class="brand-sub">Seguimiento de requerimientos por etapa</p>
+        </div>
+      </div>
+      <div class="topbar-meta">
+        <div class="meta-pill">
+          <span class="meta-label">Proyecto</span>
+          <strong>DMS Operaciones</strong>
+        </div>
+        <div class="meta-pill">
+          <span class="meta-label">Corte</span>
+          <strong id="fechaCorte">—</strong>
+        </div>
+        <div class="meta-pill status-pill" id="estadoGeneralPill">
+          <span class="meta-label">Estado</span>
+          <strong>Pendiente de gerencia</strong>
+        </div>
+        <div class="meta-pill" id="userPill">
+          <span class="meta-label">Usuario</span>
+          <strong id="userNameLabel">—</strong>
+        </div>
+        <button type="button" class="btn ghost" id="btnLogout" title="Cerrar sesión">Salir</button>
+      </div>
+    </header>
+    <div id="readonlyBanner" class="readonly-banner" hidden>
+      Estás en modo <strong>solo lectura</strong>. Puedes ver el tablero, pero no guardar cambios.
+    </div>
+
+    <section class="hero-panel">
+      <div>
+        <h1>Resumen ejecutivo</h1>
+        <p>
+          Sigue el avance por etapa (plan vs real), responsables y prioridad.
+          Desde aquí puedes <strong>aprobar</strong>, pedir <strong>mejoras</strong> o
+          <strong>rechazar</strong>.
+        </p>
+      </div>
+      <div class="kpi-grid" id="kpiGrid"></div>
+    </section>
+
+    <nav class="tabs" role="tablist" aria-label="Secciones principales">
+      <button class="tab active" data-tab="panorama" role="tab" aria-selected="true">
+        <span class="tab-label">Panorama</span>
+        <span class="tab-hint">Resumen por área</span>
+      </button>
+      <button class="tab" data-tab="detalle" role="tab" aria-selected="false">
+        <span class="tab-label">Detalle</span>
+        <span class="tab-hint">Editar fechas y etapas</span>
+      </button>
+      <button class="tab" data-tab="cronograma" role="tab" aria-selected="false">
+        <span class="tab-label">Cronograma</span>
+        <span class="tab-hint">Línea de tiempo</span>
+      </button>
+      <button class="tab" data-tab="decision" role="tab" aria-selected="false">
+        <span class="tab-label">Decisión</span>
+        <span class="tab-hint">Aprobar o rechazar</span>
+      </button>
+    </nav>
+
+    <!-- PANORAMA -->
+    <section class="panel active" id="panel-panorama" role="tabpanel">
+      <div class="panel-head">
+        <h2>Panorama por área</h2>
+        <p>Cuántos requerimientos hay y qué % de avance lleva cada área en diseño, desarrollo, QA y producción.</p>
+      </div>
+      <div class="table-shell">
+        <table class="panorama-table" id="panoramaTable">
+          <thead>
+            <tr>
+              <th>N°</th>
+              <th>Área</th>
+              <th>Diseño</th>
+              <th>Desarrollo IT</th>
+              <th>Pruebas QA</th>
+              <th>Producción</th>
+              <th>Total requerimientos</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot></tfoot>
+        </table>
+      </div>
+    </section>
+
+    <!-- DETALLE -->
+    <section class="panel" id="panel-detalle" role="tabpanel" hidden>
+      <div class="panel-head row-between">
+        <div>
+          <h2 id="detailTitle">Requerimientos en curso / planificados</h2>
+          <p id="detailSubtitle">
+            Requerimientos en curso o planificados. Al completar todas las etapas
+            (fin real en cada una, incluida producción), pasan a
+            <strong>Listos en producción</strong>.
+          </p>
+        </div>
+        <div class="filters detail-toolbar">
+          <label>
+            Área
+            <select id="filterArea">
+              <option value="">Todas</option>
+            </select>
+          </label>
+          <label>
+            Prioridad
+            <select id="filterPrioridad">
+              <option value="">Todas</option>
+              <option value="Alta">Alta</option>
+              <option value="Media">Media</option>
+              <option value="Baja">Baja</option>
+            </select>
+          </label>
+          <label>
+            Buscar
+            <input type="search" id="filterSearch" placeholder="Buscar por nombre…" autocomplete="off" />
+          </label>
+          <button type="button" class="btn ghost" id="btnClearFilters" title="Quitar filtros">Limpiar</button>
+          <button type="button" class="btn primary" id="btnAddReq" title="Agregar una nueva fila de requerimiento">+ Agregar</button>
+        </div>
+      </div>
+
+      <form id="formNuevoReq" class="crono-form detail-add-form" hidden>
+        <p class="form-lead">Nueva fila de requerimiento · se agrega en <strong>En curso</strong></p>
+        <div class="crono-form-grid detail-add-grid">
+          <label class="field">
+            Requerimiento
+            <input type="text" name="nombre" required placeholder="Nombre del requerimiento" />
+          </label>
+          <label class="field">
+            Área
+            <input type="text" name="area" required list="areaSuggestions" placeholder="Operaciones" />
+          </label>
+          <label class="field">
+            Estado
+            <select name="estado" required>
+              <option value="Pendiente" selected>Pendiente</option>
+              <option value="Planificar">Planificar</option>
+              <option value="En Proceso">En Proceso</option>
+              <option value="Enviado">Enviado</option>
+              <option value="Listo">Listo</option>
+              <option value="Detenido">Detenido</option>
+            </select>
+          </label>
+          <label class="field">
+            Fecha inicio
+            <input type="date" name="inicio" required />
+          </label>
+          <label class="field">
+            Fecha fin
+            <input type="date" name="fin" required />
+          </label>
+          <label class="field">
+            Aplica a
+            <select name="aplica" required>
+              <option value="ambos" selected>Documento + Desarrollo</option>
+              <option value="documento">Solo documento funcional</option>
+              <option value="desarrollo">Solo desarrollo</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn ghost" id="btnCancelAddReq">Cancelar</button>
+          <button type="submit" class="btn primary">Agregar fila</button>
+        </div>
+      </form>
+
+      <div class="detail-subtabs" role="tablist" aria-label="Estado del requerimiento">
+        <button type="button" class="detail-subtab active" data-bucket="curso" id="subtabCurso">
+          <span class="subtab-main">En curso</span>
+          <span class="subtab-desc">Planificados y activos</span>
+          <strong id="countCurso">0</strong>
+        </button>
+        <button type="button" class="detail-subtab" data-bucket="listos" id="subtabListos">
+          <span class="subtab-main">Listos</span>
+          <span class="subtab-desc">Ya en producción</span>
+          <strong id="countListos">0</strong>
+        </button>
+      </div>
+
+      <div class="ux-guide" aria-label="Guía rápida">
+        <div class="ux-guide-item"><span class="ux-ico">1</span> Filtra o busca</div>
+        <div class="ux-guide-item"><span class="ux-ico">2</span> Clic en el nombre para editar</div>
+        <div class="ux-guide-item"><span class="ux-ico">3</span> Arrastra la fila para reordenar</div>
+        <div class="ux-guide-item"><span class="ux-ico">4</span> Guarda fechas en la tarjeta</div>
+        <div class="ux-legend">
+          <span class="leg proyectos">Proyectos</span>
+          <span class="leg cliente">Cliente</span>
+          <span class="leg diseno">Diseño/Dev</span>
+          <span class="leg prod">Producción</span>
+        </div>
+      </div>
+
+      <div class="detail-layout">
+        <div class="table-shell">
+          <table class="panorama-table detail-summary" id="detailTable">
+            <thead>
+              <tr>
+                <th>N°</th>
+                <th>Requerimiento</th>
+                <th>Prioridad</th>
+                <th>Área</th>
+                <th class="col-proyectos">Levantamiento</th>
+                <th class="col-proyectos">Prototipado</th>
+                <th class="col-proyectos">Doc. funcional</th>
+                <th class="col-cliente">Aprobación</th>
+                <th class="col-diseno">Diseño visual</th>
+                <th class="col-diseno">Desarrollo</th>
+                <th class="col-proyectos">Etapa QA</th>
+                <th class="col-proyectos">Pruebas QA Usuario Proyecto</th>
+                <th class="col-cliente">Pruebas completas</th>
+                <th>Producción</th>
+                <th>Cumpl. total</th>
+                <th>Decisión</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <aside class="stage-drawer" id="stageDrawer" hidden aria-labelledby="drawerReq">
+          <div class="drawer-head">
+            <div>
+              <p class="drawer-kicker" id="drawerStage">Editar fechas</p>
+              <h3 id="drawerReq">—</h3>
+            </div>
+            <button type="button" class="btn ghost" id="drawerClose" aria-label="Cerrar panel">✕</button>
+          </div>
+          <div class="drawer-meta" id="drawerMeta"></div>
+          <div class="drawer-grid" id="drawerGrid"></div>
+          <div class="drawer-actions" id="drawerActions"></div>
+        </aside>
+      </div>
+      <p class="hint" id="detailHint">Tip: clic en el nombre abre la edición; arrastra la fila para cambiar el orden; al completar todas las etapas pasa a Listos.</p>
+    </section>
+
+    <!-- CRONOGRAMA -->
+    <section class="panel" id="panel-cronograma" role="tabpanel" hidden>
+      <div class="panel-head row-between">
+        <div>
+          <h2>Cronograma</h2>
+          <p>
+            Línea de tiempo por requerimiento. Crea o ajusta ítems aquí y usa
+            <strong>Sincronizar</strong> para reflejarlos en Detalle.
+          </p>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn ghost" id="btnResetData" title="Vuelve a los datos de ejemplo">Restaurar ejemplo</button>
+          <button type="button" class="btn ghost" id="btnToggleItemForm">+ Nuevo ítem</button>
+          <button type="button" class="btn primary" id="btnApplyData" title="Actualiza Detalle y Panorama con estos ítems">Sincronizar</button>
+        </div>
+      </div>
+
+      <form id="formCronograma" class="crono-form" hidden>
+        <div class="crono-form-grid">
+          <label class="field">
+            Requerimiento
+            <input type="text" name="nombre" required placeholder="Nombre del requerimiento" />
+          </label>
+          <label class="field">
+            Área
+            <input type="text" name="area" required list="areaSuggestions" placeholder="Operaciones" />
+          </label>
+          <label class="field">
+            Estado
+            <select name="estado" required>
+              <option value="Listo">Listo</option>
+              <option value="Enviado">Enviado</option>
+              <option value="En Proceso">En Proceso</option>
+              <option value="Detenido">Detenido</option>
+              <option value="Planificar">Planificar</option>
+              <option value="Pendiente" selected>Pendiente</option>
+            </select>
+          </label>
+          <label class="field">
+            Fecha inicio
+            <input type="date" name="inicio" required />
+          </label>
+          <label class="field">
+            Fecha fin
+            <input type="date" name="fin" required />
+          </label>
+          <label class="field">
+            Aplica a
+            <select name="aplica" required>
+              <option value="ambos" selected>Documento + Desarrollo</option>
+              <option value="documento">Solo documento funcional</option>
+              <option value="desarrollo">Solo desarrollo</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn ghost" id="btnCancelItemForm">Cancelar</button>
+          <button type="submit" class="btn primary">Agregar al cronograma</button>
+        </div>
+      </form>
+
+      <div class="crono-legend">
+        <span><i class="lg doc"></i> Documento funcional</span>
+        <span><i class="lg dev"></i> Desarrollo</span>
+        <span><i class="lg today"></i> Hoy</span>
+      </div>
+
+      <div class="crono-board" id="cronoBoard">
+        <div class="crono-head" id="cronoHead"></div>
+        <div class="crono-body" id="cronoBody"></div>
+      </div>
+
+      <datalist id="areaSuggestions">
+        <option value="Operaciones"></option>
+        <option value="Liquidaciones"></option>
+        <option value="Reportería"></option>
+        <option value="Recepción y Despacho"></option>
+        <option value="R&D (Recepción y Despacho)"></option>
+        <option value="Reparaciones Reefer"></option>
+        <option value="Reefer (Máquina)"></option>
+        <option value="Estructura (Box)"></option>
+      </datalist>
+
+      <p class="hint" id="cargaStatus">Cronograma unificado · los cambios se reflejan en el detalle al sincronizar.</p>
+    </section>
+
+    <!-- DECISIÓN -->
+    <section class="panel" id="panel-decision" role="tabpanel" hidden>
+      <div class="panel-head">
+        <h2>Decisión de gerencia</h2>
+        <p>Revise el resumen y registre si aprueba, pide mejoras o rechaza el seguimiento.</p>
+      </div>
+
+      <div class="decision-layout">
+        <div class="decision-summary" id="decisionSummary"></div>
+
+        <form class="decision-form" id="decisionForm">
+          <fieldset>
+            <legend>Resolución</legend>
+            <label class="choice">
+              <input type="radio" name="resolucion" value="aprobar" required />
+              <span>
+                <strong>Aprobar</strong>
+                <small>El formato y el nivel de detalle son suficientes para seguimiento.</small>
+              </span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="resolucion" value="mejoras" />
+              <span>
+                <strong>Solicitar mejoras</strong>
+                <small>Se aprueba la estructura con ajustes a incorporar.</small>
+              </span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="resolucion" value="rechazar" />
+              <span>
+                <strong>Rechazar</strong>
+                <small>No cumple lo esperado; se requiere rediseño del reporte.</small>
+              </span>
+            </label>
+          </fieldset>
+
+          <label class="field">
+            Observaciones / mejoras solicitadas
+            <textarea id="observaciones" rows="5" placeholder="Indique comentarios, columnas faltantes, criterios de % de cumplimiento, responsables, etc."></textarea>
+          </label>
+
+          <div class="form-row">
+            <label class="field">
+              Nombre del revisor
+              <input type="text" id="revisor" placeholder="Nombre y cargo" required />
+            </label>
+            <label class="field">
+              Fecha
+              <input type="date" id="fechaDecision" required />
+            </label>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn primary">Registrar decisión</button>
+            <button type="button" class="btn ghost" id="btnExport">Exportar resumen</button>
+          </div>
+          <p class="decision-result" id="decisionResult" hidden></p>
+        </form>
+      </div>
+    </section>
+
+    <footer class="footer">
+      LinkProject · Pantalla de presentación a gerencia · Datos de ejemplo para validación de formato
+    </footer>
+  </div>
+
+  <div id="toastHost" class="toast-host" aria-live="polite" aria-atomic="true"></div>
+
+  <dialog id="decisionModal">
+    <form method="dialog" class="modal-body">
+      <h3 id="modalTitle">Decisión sobre requerimiento</h3>
+      <p id="modalReq"></p>
+      <label class="field">
+        Comentario
+        <textarea id="modalComment" rows="3" placeholder="Opcional"></textarea>
+      </label>
+      <div class="form-actions">
+        <button value="cancel" class="btn ghost">Cancelar</button>
+        <button value="confirm" class="btn primary" id="modalConfirm">Confirmar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+  <script src="auth-bridge.js"></script>
+</body>
+</html>

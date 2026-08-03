@@ -1,0 +1,29 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  /// admin | editor | gerencia | viewer
+  role         String   @default("editor")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// Estado compartido del tablero (equivalente al localStorage actual)
+model Workspace {
+  id        String   @id @default("default")
+  /// JSON: { doc, dev, stageEdits, reqOrder, customStages, decisionGlobal }
+  payload   String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
