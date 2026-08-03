@@ -188,21 +188,23 @@ function dateRangeHtml(inicioIso, finIso, toneOrOpts = "") {
   const tone = opts.tone || "";
   const label = opts.label || "Fechas";
   const hasAny = !!(inicioIso || (finIso && finIso !== "—"));
-  if (!hasAny) return `<span class="date-range muted" title="${label}: sin fechas">—</span>`;
+  if (!hasAny) {
+    return `<span class="date-range stacked muted" title="${label}: sin fechas">
+      <span class="d-start">—</span>
+      <span class="d-sep" aria-hidden="true">→</span>
+      <span class="d-end">—</span>
+    </span>`;
+  }
 
   const same = inicioIso && finIso && inicioIso === finIso && finIso !== "hoy";
-  const start = formatDateShort(inicioIso);
-  const end = finIso === "hoy" ? "hoy" : formatDateShort(finIso);
+  const start = formatDateShort(inicioIso) || "—";
+  const end = same ? start : finIso === "hoy" ? "hoy" : formatDateShort(finIso) || "—";
   const fullStart = inicioIso ? formatDate(inicioIso) : "—";
   const fullEnd = finIso === "hoy" ? "hoy" : finIso ? formatDate(finIso) : "—";
   const title = same ? `${label}: ${fullStart}` : `${label}: ${fullStart} → ${fullEnd}`;
   const endCls = finIso === "hoy" ? "is-today" : tone || "";
 
-  if (same) {
-    return `<span class="date-range ${tone}" title="${title}"><span class="d-end">${start}</span></span>`;
-  }
-
-  return `<span class="date-range ${tone}" title="${title}">
+  return `<span class="date-range stacked ${tone}" title="${title}">
     <span class="d-start">${start}</span>
     <span class="d-sep" aria-hidden="true">→</span>
     <span class="d-end ${endCls}">${end}</span>
@@ -1668,7 +1670,9 @@ function realStageMetrics(et) {
 }
 
 function delayHtml(metrics) {
-  if (!metrics?.delayDays) return "";
+  if (!metrics?.delayDays) {
+    return `<span class="delay-pill delay-empty" aria-hidden="true">&nbsp;</span>`;
+  }
   return `<span class="delay-pill" title="Días de retraso vs fin planificado">+${metrics.delayDays}d</span>`;
 }
 
@@ -1743,6 +1747,7 @@ function reqStageCell(reqId, stageDef, et) {
               <span class="duo-lbl">${stageDef.production ? "Prod" : "Plan"}</span>
               ${planDaysHtml}
               ${planRange}
+              <span class="delay-pill delay-empty" aria-hidden="true">&nbsp;</span>
               <div class="duo-track" aria-hidden="true"><i style="width:${trackWidth(planDays, maxDays)}%"></i></div>
             </div>
             <div class="duo-divider" aria-hidden="true"></div>
