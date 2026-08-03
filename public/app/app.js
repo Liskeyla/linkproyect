@@ -517,89 +517,39 @@ function mergeProdListosInto(list) {
   return list;
 }
 function buildEarlyStages(row) {
+  // Solo Diseño: reparte inicio→fin del requerimiento en 3 columnas como fechas PLANIFICADAS.
+  // Las demás etapas quedan vacías (sin estimación automática).
   const segs = splitPlanningRange(row.inicio, row.fin);
   const labels = ["Levantamiento", "Prototipado", "Documento funcional"];
   const keys = ["levantamiento", "prototipado", "documento"];
-  const estado = row.estado;
-  const done = estado === "Listo" || estado === "Enviado";
-  const inProcess = estado === "En Proceso";
-  const stopped = estado === "Detenido";
+  const estado = row.estado || "Pendiente";
 
   const etapas = {};
   keys.forEach((key, i) => {
     const seg = segs[i];
     const resp = responsableEtapa(key);
-    let realInicio = null;
-    let realFin = null;
-    let avance = "";
-
-    if (done) {
-      realInicio = seg.inicio;
-      realFin = seg.fin;
-      avance =
-        estado === "Listo"
-          ? `${labels[i]} cerrado — estado Listo`
-          : `${labels[i]} cerrado — documento enviado`;
-    } else if (inProcess) {
-      if (i < 2) {
-        realInicio = seg.inicio;
-        realFin = seg.fin;
-        avance = `${labels[i]} completado`;
-      } else {
-        realInicio = seg.inicio;
-        realFin = null;
-        avance = "Documento funcional en elaboración / aprobación";
-      }
-    } else if (stopped) {
-      if (i === 0) {
-        realInicio = seg.inicio;
-        realFin = seg.fin;
-        avance = "Levantamiento cerrado — requerimiento detenido";
-      } else {
-        avance = "Detenido — sin avance real";
-      }
-    } else if (estado === "Planificar") {
-      avance = "Planificado — pendiente de iniciar";
-    } else {
-      avance = "Pendiente de planificación operativa";
-    }
-
-    etapas[key] = stage(seg.inicio, seg.fin, realInicio, realFin, resp, avance);
+    const avance = `${labels[i]} · planificado (${estado}) — completar real en Detalle`;
+    etapas[key] = stage(seg.inicio, seg.fin, null, null, resp, avance);
   });
 
   return etapas;
 }
 
 function buildDesarrolloStage(row) {
+  // Solo fechas planificadas si el ítem viene de la fuente de desarrollo (sin relleno automático de reales)
   let inicio = row.inicio;
   let fin = row.fin;
   if (parseDate(fin) < parseDate(inicio)) [inicio, fin] = [fin, inicio];
-
   const resp = responsableEtapa("desarrollo");
-  const estado = row.estado;
-  let realInicio = null;
-  let realFin = null;
-  let avance = "";
-
-  if (estado === "Listo") {
-    realInicio = inicio;
-    realFin = fin;
-    avance = "Desarrollo cerrado — estado Listo (líder: Alfredo Hermoso · coord.: Erick Valverde)";
-  } else if (estado === "En Proceso") {
-    realInicio = inicio;
-    realFin = null;
-    avance = "Desarrollo en proceso — seguimiento Erick Valverde";
-  } else if (estado === "Detenido") {
-    realInicio = inicio;
-    realFin = null;
-    avance = "Desarrollo detenido";
-  } else if (estado === "Pendiente") {
-    avance = "Desarrollo pendiente de iniciar";
-  } else {
-    avance = `Desarrollo — ${estado}`;
-  }
-
-  return stage(inicio, fin, realInicio, realFin, resp, avance);
+  const estado = row.estado || "Pendiente";
+  return stage(
+    inicio,
+    fin,
+    null,
+    null,
+    resp,
+    `Desarrollo · planificado (${estado}) — completar real en Detalle`
+  );
 }
 
 function findDevRow(nombre) {
@@ -942,15 +892,18 @@ function assembleRequirement({ nombre, area, early, desarrollo, estadoDoc, estad
   const docDays = rangeDays(early.documento?.planInicio, early.documento?.planFin);
   const devDays = rangeDays(desarrollo?.planInicio, desarrollo?.planFin);
   const difficulty = estimateDifficulty(nombre, area, docDays, devDays);
-  const trailing = estimateRemainingStages({
-    nombre,
-    area,
-    early,
-    desarrollo,
-    estadoDoc,
-    estadoDev,
-    difficulty,
-  });
+
+  // No estimar el resto del flujo: fechas vacías hasta que se completen en Detalle
+  const emptyNote = "Sin fechas — completar en Detalle";
+  const trailing = {
+    aprobacion: emptyStage(responsableEtapa("aprobacion"), emptyNote),
+    disenoVisual: emptyStage(responsableEtapa("disenoVisual"), emptyNote),
+    desarrollo: desarrollo || emptyStage(responsableEtapa("desarrollo"), emptyNote),
+    qa: emptyStage(responsableEtapa("qa"), emptyNote),
+    pruebasCompletas: emptyStage(responsableEtapa("pruebasCompletas"), emptyNote),
+    procesos: emptyStage(responsableEtapa("procesos"), emptyNote),
+    produccion: emptyStage(responsableEtapa("produccion"), emptyNote),
+  };
 
   return {
     id: index + 1,
@@ -1054,6 +1007,29 @@ function applyStageEdits() {
   });
 }
 
+/** Etapas de Diseño que sí se alimentan desde la fuente del requerimiento */
+const DESIGN_SOURCE_STAGE_KEYS = ["levantamiento", "prototipado", "documento"];
+
+/**
+ * Quita del historial las fechas auto-estimadas de etapas posteriores a Diseño,
+ * para que solo queden planificadas Levantamiento / Prototipado / Doc. funcional
+ * (salvo lo que el usuario vuelva a guardar a mano).
+ */
+function sanitizeStageEditsKeepDesignSource(edits) {
+  const out = {};
+  Object.entries(edits || {}).forEach(([reqKey, stages]) => {
+    if (!stages || typeof stages !== "object") return;
+    const filtered = {};
+    DESIGN_SOURCE_STAGE_KEYS.forEach((k) => {
+      if (stages[k] && typeof stages[k] === "object") {
+        filtered[k] = { ...stages[k] };
+      }
+    });
+    if (Object.keys(filtered).length) out[reqKey] = filtered;
+  });
+  return out;
+}
+
 function loadReqOrder() {
   try {
     const raw = localStorage.getItem(REQ_ORDER_KEY);
@@ -1111,6 +1087,8 @@ function reorderRequirement(fromId, toId) {
 function rebuildRequerimientos() {
   const usedDev = new Set();
   const totalHint = Math.max(1, REQ_FUENTE.length + DEV_FUENTE.length);
+  // Fuente documento: solo Levantamiento / Prototipado / Documento funcional (plan).
+  // No se enlaza desarrollo automático para no rellenar el resto del flujo.
   const list = REQ_FUENTE.map((row, index) => {
     const early = buildEarlyStages(row);
     const devRow = findDevRow(row.nombre);
@@ -1120,16 +1098,15 @@ function rebuildRequerimientos() {
       nombre: row.nombre,
       area: row.area,
       early,
-      desarrollo: devRow
-        ? buildDesarrolloStage(devRow)
-        : emptyStage(responsableEtapa("desarrollo"), "Sin data de desarrollo — se estima por dificultad"),
+      desarrollo: null,
       estadoDoc: row.estado,
-      estadoDev: devRow ? devRow.estado : null,
+      estadoDev: null,
       index,
       total: totalHint,
     });
   });
 
+  // Ítems solo en fuente desarrollo: fechas plan solo en Desarrollo; diseño vacío
   DEV_FUENTE.forEach((devRow) => {
     if (usedDev.has(devRow)) return;
     if (list.some((r) => namesMatch(r.nombre, devRow.nombre))) return;
@@ -2922,8 +2899,16 @@ window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
   } else {
     REQ_FUENTE = Array.isArray(payload.doc) ? payload.doc.map((r) => ({ ...r })) : [];
     DEV_FUENTE = Array.isArray(payload.dev) ? payload.dev.map((r) => ({ ...r })) : [];
-    stageEdits =
+    const rawEdits =
       payload.stageEdits && typeof payload.stageEdits === "object" ? payload.stageEdits : {};
+    // Una sola vez: limpia fechas auto-estimadas posteriores a Diseño
+    if (!payload.designSourceSanitized) {
+      stageEdits = sanitizeStageEditsKeepDesignSource(rawEdits);
+      window.__linkprojectDesignSourceSanitized = true;
+    } else {
+      stageEdits = rawEdits;
+      window.__linkprojectDesignSourceSanitized = true;
+    }
     reqOrder = Array.isArray(payload.reqOrder) ? payload.reqOrder.slice() : [];
     customStages = Array.isArray(payload.customStages)
       ? payload.customStages
@@ -2936,6 +2921,10 @@ window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
           }))
       : [];
     rebuildStagesList();
+  }
+
+  if (seedDefaults) {
+    window.__linkprojectDesignSourceSanitized = true;
   }
 
   if (payload.decisionGlobal) {
@@ -2955,6 +2944,10 @@ window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
   }
 
   refreshAppFromData();
+
+  if (typeof window.__linkprojectSchedulePersist === "function") {
+    window.__linkprojectSchedulePersist();
+  }
 };
 
 function deleteRequirement(reqId) {
