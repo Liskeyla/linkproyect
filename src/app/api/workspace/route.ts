@@ -12,8 +12,6 @@ const EMPTY_PAYLOAD = {
   decisionGlobal: null,
 };
 
-const LISKEYLA_EMAIL = "lmacias@awenandwis.com";
-
 function workspaceIdFor(userId: string) {
   return `user:${userId}`;
 }
@@ -24,10 +22,6 @@ function parsePayload(raw: string) {
   } catch {
     return { ...EMPTY_PAYLOAD };
   }
-}
-
-function hasFuenteData(data: typeof EMPTY_PAYLOAD) {
-  return (data.doc?.length || 0) + (data.dev?.length || 0) > 0;
 }
 
 async function getSessionUser() {
@@ -51,9 +45,8 @@ async function getSessionUser() {
 }
 
 /**
- * Cada usuario tiene su propio workspace.
- * - Liskeyla: base completa.
- * - María: vacío total para armar desde cero.
+ * Cada usuario tiene su propio workspace vacío al crearse.
+ * Los datos solo viven en base (nunca seed desde código).
  */
 async function getOrCreateUserWorkspace(user: {
   id: string;
@@ -61,35 +54,18 @@ async function getOrCreateUserWorkspace(user: {
 }) {
   const id = workspaceIdFor(user.id);
   let workspace = await prisma.workspace.findUnique({ where: { id } });
-  let seedDefaults = false;
 
   if (!workspace) {
-    let payload = { ...EMPTY_PAYLOAD };
-
-    if (user.email === LISKEYLA_EMAIL) {
-      const shared = await prisma.workspace.findUnique({ where: { id: "default" } });
-      if (shared) {
-        const sharedData = parsePayload(shared.payload);
-        if (hasFuenteData(sharedData)) {
-          payload = sharedData;
-        } else {
-          seedDefaults = true;
-        }
-      } else {
-        seedDefaults = true;
-      }
-    }
-
     workspace = await prisma.workspace.create({
       data: {
         id,
-        payload: JSON.stringify(payload),
+        payload: JSON.stringify({ ...EMPTY_PAYLOAD, userOwnedData: true }),
         updatedBy: user.email || null,
       },
     });
   }
 
-  return { workspace, seedDefaults };
+  return { workspace, seedDefaults: false };
 }
 
 export async function GET() {
@@ -102,10 +78,9 @@ export async function GET() {
   const data = parsePayload(workspace.payload);
 
   return NextResponse.json({
-    data,
-    seedDefaults,
-    /** María no debe recibir el catálogo automático de producción */
-    includeProdCatalog: user.email === LISKEYLA_EMAIL,
+    data: { ...data, userOwnedData: true },
+    seedDefaults: false,
+    includeProdCatalog: false,
     updatedAt: workspace.updatedAt,
     updatedBy: workspace.updatedBy,
     user: {

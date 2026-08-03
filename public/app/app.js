@@ -330,104 +330,20 @@ function namesMatch(a, b) {
  * Fuente por defecto: planificación de documentos funcionales (orden = prioridad).
  * estado: Enviado/Listo → fechas reales = planificadas en etapas tempranas.
  */
-const DEFAULT_REQ_FUENTE = [
-  { nombre: "Falso embarque V3 (Devoluciones y/o Rechazos)", area: "Operaciones", inicio: "2025-05-23", fin: "2025-12-08", estado: "Enviado" },
-  { nombre: "Portería Web (2.0)", area: "Operaciones", inicio: "2025-05-26", fin: "2025-05-26", estado: "Enviado" },
-  { nombre: "Solicitud de Actualización DMS-Liquidaciones V1", area: "Liquidaciones", inicio: "2025-05-29", fin: "2025-08-29", estado: "Listo" },
-  { nombre: "Reporte de Rechazo y Devoluciones", area: "Reportería", inicio: "2025-06-19", fin: "2025-08-12", estado: "Enviado" },
-  { nombre: "Transmisión de Booking One al DMS", area: "Operaciones", inicio: "2025-06-27", fin: "2025-07-08", estado: "Enviado" },
-  { nombre: "Reporte por Componentes V2", area: "Reportería", inicio: "2025-07-22", fin: "2025-07-22", estado: "Listo" },
-  { nombre: "Autoaprobación Daikin", area: "Liquidaciones", inicio: "2025-08-07", fin: "2025-08-27", estado: "Listo" },
-  { nombre: "Sellos y Precintos V2", area: "Operaciones", inicio: "2025-09-09", fin: "2025-09-15", estado: "Enviado" },
-  { nombre: "Rediseño del módulo de inspección y despacho — Puntos de Inspección", area: "Recepción y Despacho", inicio: "2025-10-02", fin: "2025-10-17", estado: "Enviado" },
-  { nombre: "Solicitud de actualización en DMS — Liquidaciones V2", area: "Liquidaciones", inicio: "2025-09-15", fin: "2025-10-09", estado: "Listo" },
-  { nombre: "Rediseño del Módulo de Lavado — Valores en decimales y visualización en reportería", area: "Recepción y Despacho", inicio: "2025-10-20", fin: "2025-10-31", estado: "Enviado" },
-  { nombre: "Documento Anexos Autoaprobación Daikin y Solicitud de Act. DMS Liquidaciones V2", area: "Liquidaciones", inicio: "2025-11-14", fin: "2025-11-18", estado: "Listo" },
-  { nombre: "Proyecto Servidor Réplica", area: "Reportería", inicio: "2025-11-14", fin: "2025-11-18", estado: "Listo" },
-  { nombre: "Turnos de Reposición y Evacuación V2", area: "Operaciones", inicio: "2025-12-26", fin: "2026-01-09", estado: "Listo" },
-  { nombre: "Anexo de turnos de Evacuación y Reposición V2", area: "Operaciones", inicio: "2026-02-18", fin: "2026-02-20", estado: "Listo" },
-  { nombre: "Aplicativo móvil para turnos de evacuación y reposición para choferes", area: "Operaciones", inicio: "2026-02-24", fin: "2026-03-13", estado: "Enviado" },
-  { nombre: "Sellos y Precintos V3", area: "Operaciones", inicio: "2026-03-17", fin: "2026-07-20", estado: "Detenido" },
-  { nombre: "Ajustes en validación para el rediseño de módulo de inspección y despacho (siete puntos)", area: "Operaciones", inicio: "2026-04-29", fin: "2026-05-20", estado: "Enviado" },
-  { nombre: "Ajuste de identificados en fase QA para DMS Liquidaciones V2 y Autoaprobaciones Daikin", area: "Liquidaciones", inicio: "2026-05-08", fin: "2026-05-08", estado: "Listo" },
-  { nombre: "Marca de agua DMS", area: "Operaciones", inicio: "2026-05-12", fin: "2026-05-12", estado: "Listo" },
-  { nombre: "Módulo de Servicios Asignados (Complementarios) por Contenedor", area: "Reparaciones Reefer", inicio: "2026-05-22", fin: "2026-07-20", estado: "En Proceso" },
-  { nombre: "Requerimiento Patio 4 Sur — RFS", area: "Operaciones", inicio: "2026-06-01", fin: "2026-06-03", estado: "Enviado" },
-  { nombre: "Servicios Turnos de Evacuación y Reposición en Portería Web", area: "Operaciones", inicio: "2026-06-10", fin: "2026-06-25", estado: "Enviado" },
-  { nombre: "Proceso TO BE: PTI Post Repair", area: "Reparaciones Reefer", inicio: "2026-07-07", fin: "2026-08-17", estado: "Planificar" },
-  { nombre: "Reporte de PTI Post Repair", area: "Reparaciones Reefer", inicio: "2026-07-07", fin: "2026-08-17", estado: "Planificar" },
-  { nombre: "Transmisión de booking de SBM/Nautic", area: "Reparaciones Reefer", inicio: "2026-07-10", fin: "2026-07-20", estado: "Enviado" },
-  { nombre: "Mejoras de Pruebas de Luz", area: "Operaciones", inicio: "2026-07-13", fin: "2026-07-20", estado: "Enviado" },
-  { nombre: "Cero Papel V2", area: "Reportería", inicio: "2026-07-27", fin: "2026-08-14", estado: "Planificar" },
-  { nombre: "Layout Virtual RFS — Modelo de Ubicaciones", area: "Operaciones", inicio: "2026-08-17", fin: "2026-11-09", estado: "Planificar" },
-  { nombre: "Reporte de Ubicación de contenedores", area: "Operaciones", inicio: "2026-08-17", fin: "2026-11-09", estado: "Planificar" },
-  { nombre: "Registro de movimiento de operadores de portacontenedores", area: "Operaciones", inicio: "2026-09-07", fin: "2026-11-23", estado: "Planificar" },
-  { nombre: "Reporte de Tiempos de Status de contenedores", area: "Operaciones", inicio: "2026-09-07", fin: "2026-11-23", estado: "Planificar" },
-  { nombre: "Bitácora digital de seguridad", area: "Reportería", inicio: "2026-11-23", fin: "2026-12-18", estado: "Pendiente" },
-  { nombre: "Insumos de Reparaciones: Fracciones de los paneles y consumibles SAP", area: "Reparaciones Reefer", inicio: "2026-12-18", fin: "2027-01-04", estado: "Pendiente" },
-  { nombre: "Sistema DMS integrándolo con SAP (órdenes, bodega)", area: "Reportería", inicio: "2027-01-05", fin: "2027-01-17", estado: "Pendiente" },
-];
+const DEFAULT_REQ_FUENTE = [];
 
 /**
  * Fuente por defecto: etapa Desarrollo (orden = prioridad de desarrollo).
  * Listo → real = planificado. En Proceso / Detenido / Pendiente según reglas.
  */
-const DEFAULT_DEV_FUENTE = [
-  { nombre: "Códigos de partes de Contenedores bajo normas IICL", area: "Estructura (Box)", inicio: "2025-11-05", fin: "2025-11-26", estado: "Listo" },
-  { nombre: "Solicitud de actualización en DMS — Liquidaciones V2", area: "Liquidaciones", inicio: "2025-11-19", fin: "2025-11-28", estado: "Listo" },
-  { nombre: "Documento Anexos Autoaprobación Daikin y Solicitud de Act. DMS Liquidaciones V2", area: "Liquidaciones", inicio: "2025-12-02", fin: "2025-12-19", estado: "Listo" },
-  { nombre: "Proyecto Servidor Réplica", area: "Reportería", inicio: "2025-12-15", fin: "2025-12-19", estado: "Listo" },
-  { nombre: "Turnos de Reposición y Evacuación V2", area: "Operaciones", inicio: "2026-01-15", fin: "2026-02-05", estado: "Listo" },
-  { nombre: "Aplicativo móvil para turnos de evacuación y reposición para choferes", area: "Operaciones", inicio: "2026-03-23", fin: "2026-05-04", estado: "Listo" },
-  { nombre: "Falso embarque V3 (Devoluciones y/o Rechazos)", area: "Operaciones", inicio: "2026-03-30", fin: "2026-04-17", estado: "Detenido" },
-  { nombre: "Ajuste de identificados en fase QA para DMS Liquidaciones V2 y Autoaprobaciones Daikin", area: "Liquidaciones", inicio: "2026-05-08", fin: "2026-05-16", estado: "Listo" },
-  { nombre: "Rediseño del Módulo de Lavado — Valores en decimales y visualización en reportería", area: "Recepción y Despacho", inicio: "2026-05-09", fin: "2026-05-27", estado: "Detenido" },
-  { nombre: "Marca de agua DMS", area: "Operaciones", inicio: "2026-05-13", fin: "2026-05-19", estado: "Listo" },
-  { nombre: "Requerimiento Patio 4 Sur — RFS", area: "Operaciones", inicio: "2026-06-04", fin: "2026-06-06", estado: "Pendiente" },
-  { nombre: "Ajustes en validación para el rediseño de módulo de inspección y despacho (siete puntos)", area: "Operaciones", inicio: "2026-06-09", fin: "2026-07-21", estado: "En Proceso" },
-  { nombre: "Anexo de turnos de Evacuación y Reposición V2", area: "Operaciones", inicio: "2026-06-09", fin: "2026-07-07", estado: "Listo" },
-  { nombre: "Rediseño del módulo de inspección y despacho — Puntos de Inspección", area: "Recepción y Despacho", inicio: "2026-06-09", fin: "2026-07-21", estado: "En Proceso" },
-];
+const DEFAULT_DEV_FUENTE = [];
 
 /**
  * Requerimientos ya en producción (Listo).
  * plan/real = fechas de producción
  * docInicio/docFin = documento funcional (se reparte en Levantamiento / Prototipado / Doc. funcional)
  */
-const DEFAULT_PROD_LISTOS = [
-  { nombre: "Sistema de Bloqueos de Turnos Administrativo", area: "Reefer (Máquina)", plan: "2024-07-19", real: "2024-08-22", docInicio: "2024-03-01", docFin: "2024-03-01" },
-  { nombre: "Módulo Monitor de Servicios Part 1", area: "Operaciones", plan: "2024-08-05", real: "2024-09-12", docInicio: "2024-07-09", docFin: "2024-07-09" },
-  { nombre: "Liquidaciones V4", area: "Liquidaciones", plan: "2025-01-01", real: "2025-01-01", docInicio: "2024-07-15", docFin: "2024-07-15" },
-  { nombre: "Reparación de autoaprobaciones (SBM)", area: "Reefer (Máquina)", plan: "2024-08-19", real: "2024-08-19", docInicio: "2024-07-31", docFin: "2024-07-31" },
-  { nombre: "Reparaciones en Despachos y Generado de Estimados", area: "R&D (Recepción y Despacho)", plan: "2024-11-28", real: "2024-12-13", docInicio: "2024-08-06", docFin: "2024-08-06" },
-  { nombre: "RnD - Inclusión de tiempos de inicio y fin de inspección", area: "R&D (Recepción y Despacho)", plan: "2025-04-11", real: "2025-04-11", docInicio: "2024-08-06", docFin: "2024-08-06" },
-  { nombre: "Automatizar campos de Exportación (Exportador, Nave, Itinerario) mediante Turno", area: "Operaciones", plan: "2024-11-25", real: "2024-11-25", docInicio: "2024-08-23", docFin: "2024-08-23" },
-  { nombre: "Mejoras en Sistemas de Turnos", area: "Operaciones", plan: "2024-12-11", real: "2024-12-20", docInicio: "2024-08-23", docFin: "2024-08-23" },
-  { nombre: "Requerimiento de Módulo de Portería V5", area: "Operaciones", plan: "2024-09-02", real: "2024-09-02", docInicio: "2024-09-02", docFin: "2024-09-02" },
-  { nombre: "Preasignación/Bloqueo de Contenedores bajo Booking", area: "Operaciones", plan: "2024-11-07", real: "2024-11-29", docInicio: "2024-09-23", docFin: "2024-09-23" },
-  { nombre: "Módulo Monitor de Servicios Part 1.2", area: "Operaciones", plan: "2024-10-02", real: "2024-10-04", docInicio: "2024-09-25", docFin: "2024-09-25" },
-  { nombre: 'Proceso TO BE "Prueba de Luz"', area: "Operaciones", plan: "2025-03-13", real: "2025-03-13", docInicio: "2024-10-15", docFin: "2024-10-15" },
-  { nombre: "Mejoras Proceso de Seteo de Contenedores", area: "Reefer (Máquina)", plan: "2025-02-13", real: "2025-02-13", docInicio: "2024-10-29", docFin: "2024-10-29" },
-  { nombre: "Usuario Máster-Portal de Turnos", area: "Operaciones", plan: "2025-05-08", real: "2025-05-08", docInicio: "2024-11-04", docFin: "2024-12-05" },
-  { nombre: "Reportería de Asistencias Técnicas", area: "Reportería", plan: "2024-12-30", real: "2025-01-13", docInicio: "2024-11-05", docFin: "2024-11-05" },
-  { nombre: "App Estimación de Asistencias Técnicas", area: "Reefer (Máquina)", plan: "2024-12-30", real: "2025-01-13", docInicio: "2024-11-20", docFin: "2024-11-20" },
-  { nombre: "Códigos de partes de Contenedores bajo normas IICL", area: "Estructura (Box)", plan: "2024-12-24", real: "2024-12-24", docInicio: "2024-12-24", docFin: "2024-12-24" },
-  { nombre: "Turnos de Reposición y Evacuación", area: "Operaciones", plan: "2026-02-20", real: "2026-02-20", docInicio: "2025-01-07", docFin: "2025-01-07" },
-  { nombre: "Control automático despacho de contenedores operativos", area: "Operaciones", plan: "2025-05-21", real: "2025-05-21", docInicio: "2025-01-20", docFin: "2025-01-20" },
-  { nombre: "Reporte por Componentes", area: "Reportería", plan: "2025-06-26", real: "2025-06-26", docInicio: "2025-02-10", docFin: "2025-02-10" },
-  { nombre: "Maqueta de Desarrollo de Destiempos", area: "Operaciones", plan: "2025-06-19", real: "2025-06-19", docInicio: "2025-04-15", docFin: "2025-04-15" },
-  { nombre: "Solicitud de Actualización DMS-Liquidaciones V1", area: "Liquidaciones", plan: "2025-10-16", real: "2025-10-16", docInicio: "2025-05-29", docFin: "2025-08-29" },
-  { nombre: "Reporte por Componentes V2", area: "Reportería", plan: "2025-08-28", real: "2025-08-28", docInicio: "2025-07-22", docFin: "2025-07-22" },
-  { nombre: "Autoaprobación Daikin", area: "Liquidaciones", plan: "2026-06-11", real: "2026-06-11", docInicio: "2025-08-07", docFin: "2025-08-27" },
-  { nombre: "Solicitud de actualización en DMS - liquidaciones V2", area: "Liquidaciones", plan: "2026-06-11", real: "2026-06-11", docInicio: "2025-09-15", docFin: "2025-10-09" },
-  { nombre: "Documento Anexos Autoaprobación Daikin y Solicitud de Act. DMS Liquidaciones V2", area: "Liquidaciones", plan: "2026-06-11", real: "2026-06-11", docInicio: "2025-11-14", docFin: "2025-11-18" },
-  { nombre: "Proyecto Servidor Réplica", area: "Reportería", plan: "2025-12-19", real: "2025-12-19", docInicio: "2025-11-14", docFin: "2025-11-18" },
-  { nombre: "Turnos de Reposición y Evacuación V2", area: "Operaciones", plan: "2026-02-18", real: "2026-02-20", docInicio: "2025-12-26", docFin: "2026-01-09" },
-  { nombre: "Anexo de turnos de Evacuación y Reposición v2", area: "Operaciones", plan: "2026-02-27", real: "2026-02-27", docInicio: "2026-02-18", docFin: "2026-02-20" },
-  { nombre: "Ajuste de identificados en fase QA para DMS liquidaciones V2 y Autoaprobaciones Daikin", area: "Liquidaciones", plan: "2026-06-11", real: "2026-06-11", docInicio: "2026-05-08", docFin: "2026-05-08" },
-  { nombre: "Marca de agua DMS", area: "Operaciones", plan: "2026-06-11", real: "2026-06-11", docInicio: "2026-05-12", docFin: "2026-05-12" },
-  { nombre: "Sellos y Precintos V1", area: "Operaciones", plan: "2025-09-04", real: "2025-09-04", docInicio: "2025-09-04", docFin: "2025-09-04" },
-];
+const DEFAULT_PROD_LISTOS = [];
 
 const EARLY_STAGE_KEYS = ["levantamiento", "prototipado", "documento"];
 
@@ -437,171 +353,14 @@ const EARLY_STAGE_KEYS = ["levantamiento", "prototipado", "documento"];
  * 2) Fechas de QA
  * 3) Fechas de Desarrollo
  */
-const DOC_FUNCIONAL_DONE = [
-  { nombre: "Cero papel", area: "Operaciones", inicio: "2025-02-11", fin: "2025-02-11" },
-  { nombre: "Sellos y Precintos V1", area: "Operaciones", inicio: "2025-02-18", fin: "2025-02-18" },
-  { nombre: "Falso embarque V3 (Devoluciones y/o Rechazos)", area: "Operaciones", inicio: "2025-05-23", fin: "2025-12-08" },
-  { nombre: "Portería Web (2.0)", area: "Operaciones", inicio: "2025-05-26", fin: "2025-05-26" },
-  { nombre: "Reporte de Rechazo y Devoluciones", area: "Reportería", inicio: "2025-06-19", fin: "2025-08-12" },
-  { nombre: "Transmisión de Booking One al DMS", area: "Operaciones", inicio: "2025-06-27", fin: "2025-07-08" },
-  { nombre: "Sellos y Precintos V2", area: "Operaciones", inicio: "2025-09-09", fin: "2025-09-15" },
-  {
-    nombre: "Rediseño del módulo de inspección y despacho — Puntos de Inspección",
-    area: "R&D (Recepción y Despacho)",
-    inicio: "2025-10-02",
-    fin: "2025-10-17",
-  },
-  {
-    nombre: "Rediseño del Módulo de Lavado — Valores en decimales y visualización en reportería",
-    area: "R&D (Recepción y Despacho)",
-    inicio: "2025-10-20",
-    fin: "2025-10-31",
-  },
-  {
-    nombre: "Aplicativo móvil para turnos de evacuación y reposición para choferes",
-    area: "Operaciones",
-    inicio: "2026-02-24",
-    fin: "2026-03-13",
-  },
-  {
-    nombre: "Ajustes en validación para el rediseño de módulo de inspección y despacho (siete puntos)",
-    area: "Operaciones",
-    inicio: "2026-04-29",
-    fin: "2026-05-20",
-  },
-  { nombre: "Requerimiento Patio 4 Sur — RFS", area: "Operaciones", inicio: "2026-06-01", fin: "2026-06-03" },
-  {
-    nombre: "Servicios Turnos de Evacuación y Reposición en Portería Web",
-    area: "Operaciones",
-    inicio: "2026-06-10",
-    fin: "2026-06-25",
-  },
-  { nombre: "Transmisión de booking de SBM/Nautic", area: "Reefer (Máquina)", inicio: "2026-07-10", fin: "2026-07-20" },
-  { nombre: "Mejoras de Pruebas de Luz", area: "Operaciones", inicio: "2026-07-13", fin: "2026-07-20" },
-];
+const DOC_FUNCIONAL_DONE = [];
 
-const QA_STAGE_DATES = [
-  { nombre: "QA Fase 2 Cero papel", area: "Operaciones", inicio: "2025-04-21", fin: "2025-05-14", estado: "Detenido" },
-  { nombre: "Portería Web (2.0)", area: "Operaciones", inicio: "2025-06-18", fin: "2025-12-12", estado: "Detenido" },
-  { nombre: "Transmisión de Booking One al DMS", area: "Operaciones", inicio: "2025-07-25", fin: "2025-08-01", estado: "Detenido" },
-  {
-    nombre: "Códigos de partes de Contenedores bajo normas IICL",
-    area: "Estructura (Box)",
-    inicio: "2025-11-27",
-    fin: "2025-12-18",
-    estado: "Detenido",
-  },
-  {
-    nombre: "Aplicativo móvil para turnos de evacuación y reposición para choferes",
-    area: "Operaciones",
-    inicio: "2026-06-24",
-    fin: "2026-07-03",
-    estado: "En Proceso",
-  },
-];
+const QA_STAGE_DATES = [];
 
-const DEV_STAGE_DATES = [
-  { nombre: "Reporte de Rechazo y Devoluciones", area: "Reportería", inicio: "2025-06-19", fin: "2025-08-12", estado: "Detenido" },
-  { nombre: "Sellos y Precintos V2", area: "Operaciones", inicio: "2025-10-10", fin: "2025-10-27", estado: "Detenido" },
-  { nombre: "Falso embarque V3 (Devoluciones y/o Rechazos)", area: "Operaciones", inicio: "2026-03-30", fin: "2026-04-17", estado: "Detenido" },
-  {
-    nombre: "Rediseño del Módulo de Lavado — Valores en decimales y visualización en reportería",
-    area: "R&D (Recepción y Despacho)",
-    inicio: "2026-05-09",
-    fin: "2026-05-27",
-    estado: "Detenido",
-  },
-  {
-    nombre: "Ajustes en validación para el rediseño de módulo de inspección y despacho (siete puntos)",
-    area: "Operaciones",
-    inicio: "2026-06-09",
-    fin: "2026-07-21",
-    estado: "En Proceso",
-  },
-  {
-    nombre: "Rediseño del módulo de inspección y despacho — Puntos de Inspección",
-    area: "R&D (Recepción y Despacho)",
-    inicio: "2026-06-09",
-    fin: "2026-07-21",
-    estado: "En Proceso",
-  },
-  { nombre: "Transmisión de booking de SBM/Nautic", area: "Reefer (Máquina)", inicio: "2026-06-09", fin: "2026-07-21", estado: "En Proceso" },
-];
+const DEV_STAGE_DATES = [];
 
 /** Desarrollo Listo: repartir entre Diseño visual + Desarrollo (plan = real) */
-const DEV_LISTO_DATES = [
-  { nombre: "Requerimiento de Módulo de Portería V5", area: "Operaciones", inicio: "2024-07-15", fin: "2024-07-15" },
-  { nombre: "Sistema de Bloqueos de Turnos Administrativo", area: "Reefer (Máquina)", inicio: "2024-07-16", fin: "2024-08-14" },
-  { nombre: "Liquidaciones V4", area: "Liquidaciones", inicio: "2024-07-24", fin: "2024-07-24" },
-  { nombre: "Módulo Monitor de Servicios Part 1", area: "Operaciones", inicio: "2024-07-31", fin: "2024-08-23" },
-  { nombre: "Reparación de autoaprobaciones (SBM)", area: "Reefer (Máquina)", inicio: "2024-07-31", fin: "2024-08-06" },
-  {
-    nombre: "Automatizar campos de Exportación (Exportador, Nave, Itinerario) mediante Turno",
-    area: "Operaciones",
-    inicio: "2024-08-23",
-    fin: "2024-08-23",
-  },
-  { nombre: "Módulo Monitor de Servicios Part 1.2", area: "Operaciones", inicio: "2024-09-27", fin: "2024-09-30" },
-  { nombre: "Mejoras en Sistemas de Turnos", area: "Operaciones", inicio: "2024-10-14", fin: "2024-11-12" },
-  { nombre: "Preasignación/Bloqueo de Contenedores bajo Booking", area: "Operaciones", inicio: "2024-11-01", fin: "2024-11-26" },
-  {
-    nombre: "Reparaciones en Despachos y Generado de Estimados",
-    area: "R&D (Recepción y Despacho)",
-    inicio: "2024-11-20",
-    fin: "2024-12-10",
-  },
-  { nombre: "App Estimación de Asistencias Técnicas", area: "Reefer (Máquina)", inicio: "2024-11-27", fin: "2025-01-09" },
-  { nombre: "Reportería de Asistencias Técnicas", area: "Reportería", inicio: "2024-11-27", fin: "2024-12-23" },
-  { nombre: 'Proceso TO BE "Prueba de Luz"', area: "Operaciones", inicio: "2024-11-29", fin: "2025-02-19" },
-  { nombre: "Turnos de Reposición y Evacuación", area: "Operaciones", inicio: "2025-01-15", fin: "2025-06-04" },
-  { nombre: "Mejoras Proceso de Seteo de Contenedores", area: "Reefer (Máquina)", inicio: "2025-01-23", fin: "2025-01-23" },
-  { nombre: "Control automático despacho de contenedores operativos", area: "Operaciones", inicio: "2025-02-10", fin: "2025-05-21" },
-  { nombre: "Reporte por Componentes", area: "Reportería", inicio: "2025-02-26", fin: "2025-06-04" },
-  { nombre: "Cero papel", area: "Operaciones", inicio: "2025-03-14", fin: "2025-04-15" },
-  { nombre: "Usuario Máster-Portal de Turnos", area: "Operaciones", inicio: "2025-03-25", fin: "2025-03-26" },
-  {
-    nombre: "RnD - Inclusión de tiempos de inicio y fin de inspección",
-    area: "R&D (Recepción y Despacho)",
-    inicio: "2025-04-01",
-    fin: "2025-04-04",
-  },
-  { nombre: "Maqueta de Desarrollo de Destiempos", area: "Operaciones", inicio: "2025-04-29", fin: "2025-05-28" },
-  { nombre: "Sellos y Precintos V1", area: "Operaciones", inicio: "2025-06-04", fin: "2025-06-11" },
-  { nombre: "Portería Web (2.0)", area: "Operaciones", inicio: "2025-06-11", fin: "2025-06-18" },
-  { nombre: "Transmisión de Booking One al DMS", area: "Operaciones", inicio: "2025-07-23", fin: "2025-07-28" },
-  { nombre: "Reporte por Componentes V2", area: "Reportería", inicio: "2025-08-06", fin: "2025-08-08" },
-  { nombre: "Solicitud de Actualización DMS-Liquidaciones V1", area: "Liquidaciones", inicio: "2025-08-18", fin: "2025-09-24" },
-  { nombre: "Autoaprobación Daikin", area: "Liquidaciones", inicio: "2025-10-03", fin: "2025-10-07" },
-  {
-    nombre: "Códigos de partes de Contenedores bajo normas IICL",
-    area: "Estructura (Box)",
-    inicio: "2025-11-05",
-    fin: "2025-11-26",
-  },
-  { nombre: "Solicitud de actualización en DMS — Liquidaciones V2", area: "Liquidaciones", inicio: "2025-11-19", fin: "2025-11-28" },
-  {
-    nombre: "Documento Anexos Autoaprobación Daikin y Solicitud de Act. DMS Liquidaciones V2",
-    area: "Liquidaciones",
-    inicio: "2025-12-02",
-    fin: "2025-12-19",
-  },
-  { nombre: "Proyecto Servidor Réplica", area: "Reportería", inicio: "2025-12-15", fin: "2025-12-19" },
-  { nombre: "Turnos de Reposición y Evacuación V2", area: "Operaciones", inicio: "2026-01-15", fin: "2026-02-05" },
-  {
-    nombre: "Aplicativo móvil para turnos de evacuación y reposición para choferes",
-    area: "Operaciones",
-    inicio: "2026-03-23",
-    fin: "2026-05-04",
-  },
-  {
-    nombre: "Ajuste de identificados en fase QA para DMS Liquidaciones V2 y Autoaprobaciones Daikin",
-    area: "Liquidaciones",
-    inicio: "2026-05-08",
-    fin: "2026-05-16",
-  },
-  { nombre: "Marca de agua DMS", area: "Operaciones", inicio: "2026-05-13", fin: "2026-05-19" },
-  { nombre: "Anexo de turnos de Evacuación y Reposición V2", area: "Operaciones", inicio: "2026-06-09", fin: "2026-07-07" },
-];
+const DEV_LISTO_DATES = [];
 
 function splitRangeIntoParts(inicio, fin, parts) {
   let a = parseDate(inicio);
@@ -699,49 +458,7 @@ function ensureReqFromProgress(list, item, estadoDoc) {
 }
 
 /** Aplica documento terminado + QA + Desarrollo según las listas de seguimiento */
-function applyKnownStageProgress(list) {
-  DOC_FUNCIONAL_DONE.forEach((item) => {
-    const req = ensureReqFromProgress(list, item, "Enviado");
-    applyDocDatesToEarlyStages(req, item.inicio, item.fin);
-    req.estadoDoc = "Enviado";
-    req.estadoFuente = req.estadoDev || "Enviado";
-    if (item.area) req.area = item.area;
-  });
-
-  QA_STAGE_DATES.forEach((item) => {
-    const req = ensureReqFromProgress(list, item, "Enviado");
-    patchStageDates(
-      req,
-      "qa",
-      item.inicio,
-      item.fin,
-      item.estado,
-      `Etapa QA · ${item.estado}`
-    );
-    if (item.area) req.area = item.area;
-  });
-
-  DEV_STAGE_DATES.forEach((item) => {
-    const req = ensureReqFromProgress(list, item, "Enviado");
-    patchStageDates(
-      req,
-      "desarrollo",
-      item.inicio,
-      item.fin,
-      item.estado,
-      `Desarrollo · ${item.estado}`
-    );
-    req.estadoDev = item.estado;
-    req.estadoFuente = item.estado;
-    if (item.area) req.area = item.area;
-  });
-
-  // Listos de desarrollo: reparto Diseño visual + Desarrollo (plan = real)
-  DEV_LISTO_DATES.forEach((item) => {
-    const req = ensureReqFromProgress(list, item, "Listo");
-    applyDevListoSplit(req, item.inicio, item.fin);
-    if (item.area) req.area = item.area;
-  });
+function applyKnownStageProgress(_list) {
 }
 
 function applyDocDatesToEarlyStages(req, docInicio, docFin) {
@@ -817,16 +534,6 @@ function buildListoProduccionRequirement(item, index, total) {
 }
 
 function mergeProdListosInto(list) {
-  const total = Math.max(1, list.length + DEFAULT_PROD_LISTOS.length);
-  DEFAULT_PROD_LISTOS.forEach((item, i) => {
-    const existing = list.find((r) => namesMatch(r.nombre, item.nombre));
-    if (existing) {
-      markRequirementListoProduccion(existing, item.plan, item.real, item.docInicio, item.docFin);
-      if (item.area) existing.area = item.area;
-    } else {
-      list.push(buildListoProduccionRequirement(item, list.length + i, total));
-    }
-  });
   return list;
 }
 function buildEarlyStages(row) {
@@ -1465,17 +1172,9 @@ function isMariaUser() {
 function syncWorkspaceUiForUser() {
   const btn = document.getElementById("btnResetData");
   if (!btn) return;
-  if (isMariaUser()) {
-    btn.hidden = false;
-    btn.textContent = "Vaciar tablero";
-    btn.title = "Borra todos los requerimientos de María y deja el tablero vacío";
-  } else if (isLiskeylaUser()) {
-    btn.hidden = false;
-    btn.textContent = "Restaurar ejemplo";
-    btn.title = "Vuelve a los datos de ejemplo / base histórica";
-  } else {
-    btn.hidden = true;
-  }
+  btn.hidden = false;
+  btn.textContent = "Vaciar tablero";
+  btn.title = "Borra todos los requerimientos guardados en la base de datos";
 }
 
 function shouldIncludeProdCatalog() {
@@ -1529,55 +1228,7 @@ function snapshotStageEditsFromReqs(list) {
  * Después el usuario edita/borra y todo queda solo en base de datos.
  */
 function materializeLiskeylaBaselineToOwnedData() {
-  DOC_FUNCIONAL_DONE.forEach((i) => upsertReqFuente(i, "Enviado"));
-  QA_STAGE_DATES.forEach((i) => upsertReqFuente(i, i.estado || "Pendiente"));
-  DEV_STAGE_DATES.forEach((i) => upsertReqFuente(i, "Enviado"));
-  DEV_LISTO_DATES.forEach((i) => upsertReqFuente(i, "Listo"));
-  DEFAULT_PROD_LISTOS.forEach((i) =>
-    upsertReqFuente(
-      {
-        nombre: i.nombre,
-        area: i.area,
-        inicio: i.docInicio || i.plan,
-        fin: i.docFin || i.real || i.plan,
-      },
-      "Listo"
-    )
-  );
-
-  const totalHint = Math.max(1, REQ_FUENTE.length);
-  const list = REQ_FUENTE.map((row, index) => {
-    const early = buildEarlyStages(row);
-    return assembleRequirement({
-      nombre: row.nombre,
-      area: row.area,
-      early,
-      desarrollo: null,
-      estadoDoc: row.estado,
-      estadoDev: null,
-      index,
-      total: totalHint,
-    });
-  });
-  applyKnownStageProgress(list);
-  mergeProdListosInto(list);
-
-  REQ_FUENTE = list.map((req) => {
-    const lev = req.etapas?.levantamiento;
-    const doc = req.etapas?.documento;
-    return {
-      nombre: req.nombre,
-      area: req.area,
-      inicio: lev?.planInicio || doc?.planInicio || todayIso(),
-      fin: doc?.planFin || lev?.planFin || todayIso(),
-      estado: req.estadoDoc || req.estadoFuente || "Pendiente",
-    };
-  });
-  DEV_FUENTE = [];
-  stageEdits = snapshotStageEditsFromReqs(list);
-  reqOrder = list.map((r) => normName(r.nombre));
   window.__linkprojectUserOwnedData = true;
-  window.__linkprojectDesignSourceSanitized = true;
 }
 
 function refreshAppFromData() {
@@ -3280,33 +2931,13 @@ document.querySelectorAll(".area-pick").forEach((sel) => {
 });
 
 document.getElementById("btnResetData").addEventListener("click", () => {
-  if (isMariaUser()) {
-    if (!confirm("¿Vaciar todo el tablero de María? Se borrarán los requerimientos guardados.")) return;
-    REQ_FUENTE = [];
-    DEV_FUENTE = [];
-    stageEdits = {};
-    reqOrder = [];
-    customStages = [];
-    window.__linkprojectUserOwnedData = true;
-    saveFuentes();
-    saveStageEdits();
-    saveReqOrder();
-    saveCustomStages();
-    rebuildStagesList();
-    closeStageDrawer();
-    refreshAppFromData();
-    if (typeof window.__linkprojectPersistNow === "function") window.__linkprojectPersistNow();
-    showToast("Tablero vacío · agrega desde Detalle", "ok");
-    return;
-  }
-
-  if (!confirm("¿Restaurar la base inicial y reemplazar lo cargado? Luego podrás editar/borrar con normalidad.")) return;
-  REQ_FUENTE = cloneFuente(DEFAULT_REQ_FUENTE);
-  DEV_FUENTE = cloneFuente(DEFAULT_DEV_FUENTE);
+  if (!confirm("¿Vaciar todo el tablero? Se borrarán los requerimientos guardados en la base.")) return;
+  REQ_FUENTE = [];
+  DEV_FUENTE = [];
   stageEdits = {};
   reqOrder = [];
   customStages = [];
-  materializeLiskeylaBaselineToOwnedData();
+  window.__linkprojectUserOwnedData = true;
   saveFuentes();
   saveStageEdits();
   saveReqOrder();
@@ -3315,7 +2946,7 @@ document.getElementById("btnResetData").addEventListener("click", () => {
   closeStageDrawer();
   refreshAppFromData();
   if (typeof window.__linkprojectPersistNow === "function") window.__linkprojectPersistNow();
-  showToast("Base restaurada en tu espacio (editable en base de datos)", "ok");
+  showToast("Tablero vacío · agrega desde Detalle", "ok");
 });
 
 /* Init — espera datos remotos vía auth-bridge (__linkprojectApplyRemote) */
@@ -3348,56 +2979,35 @@ function prodListosAsFuenteRows() {
 
 window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
   const payload = data || {};
-  const seedDefaults = !!options.seedDefaults;
-  const alreadyOwned = !!payload.userOwnedData;
 
-  if (typeof options.includeProdCatalog === "boolean") {
-    window.__linkprojectIncludeProdCatalog = options.includeProdCatalog;
-  }
-  window.__linkprojectUserOwnedData = alreadyOwned;
+  window.__linkprojectIncludeProdCatalog = false;
+  window.__linkprojectUserOwnedData = true;
+  window.__linkprojectDesignSourceSanitized = true;
 
-  // Solo Liskeyla puede recibir seed inicial; María siempre su workspace
-  if (seedDefaults && isLiskeylaUser() && !alreadyOwned) {
-    REQ_FUENTE = cloneFuente(DEFAULT_REQ_FUENTE);
-    DEV_FUENTE = cloneFuente(DEFAULT_DEV_FUENTE);
-    stageEdits = {};
-    reqOrder = [];
-    customStages = [];
-    rebuildStagesList();
-  } else {
-    REQ_FUENTE = Array.isArray(payload.doc) ? payload.doc.map((r) => ({ ...r })) : [];
-    DEV_FUENTE = Array.isArray(payload.dev) ? payload.dev.map((r) => ({ ...r })) : [];
-    // Datos del usuario: respetar stageEdits completos (sin recortar etapas)
-    stageEdits =
-      payload.stageEdits && typeof payload.stageEdits === "object" ? { ...payload.stageEdits } : {};
-    reqOrder = Array.isArray(payload.reqOrder) ? payload.reqOrder.slice() : [];
-    customStages = Array.isArray(payload.customStages)
-      ? payload.customStages
-          .filter((s) => s && s.key && s.label)
-          .map((s) => ({
-            key: String(s.key),
-            label: String(s.label),
-            group: s.group || "default",
-            custom: true,
-          }))
-      : [];
-    rebuildStagesList();
-  }
+  // Solo lo que viene de la base de datos (nunca datos incrustados)
+  REQ_FUENTE = Array.isArray(payload.doc) ? payload.doc.map((r) => ({ ...r })) : [];
+  DEV_FUENTE = Array.isArray(payload.dev) ? payload.dev.map((r) => ({ ...r })) : [];
+  stageEdits =
+    payload.stageEdits && typeof payload.stageEdits === "object" ? { ...payload.stageEdits } : {};
+  reqOrder = Array.isArray(payload.reqOrder) ? payload.reqOrder.slice() : [];
+  customStages = Array.isArray(payload.customStages)
+    ? payload.customStages
+        .filter((s) => s && s.key && s.label)
+        .map((s) => ({
+          key: String(s.key),
+          label: String(s.label),
+          group: s.group || "default",
+          custom: true,
+        }))
+    : [];
+  rebuildStagesList();
 
   if (payload.decisionGlobal) {
     state.decisionGlobal = payload.decisionGlobal;
     applyDecisionUi(payload.decisionGlobal);
-  } else if (!(seedDefaults && isLiskeylaUser() && !alreadyOwned)) {
+  } else {
     state.decisionGlobal = null;
   }
-
-  // Migración única Liskeyla: código → base de datos; luego nunca más se reinyecta
-  if (isLiskeylaUser() && !alreadyOwned) {
-    materializeLiskeylaBaselineToOwnedData();
-  } else {
-    window.__linkprojectUserOwnedData = true;
-  }
-  window.__linkprojectDesignSourceSanitized = true;
 
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ doc: REQ_FUENTE, dev: DEV_FUENTE }));
@@ -3409,11 +3019,6 @@ window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
   }
 
   refreshAppFromData();
-
-  // La persistencia la hace auth-bridge al terminar de hidratar (hydrated=true)
-  if (isLiskeylaUser() && !alreadyOwned) {
-    showToast("Datos migrados a tu base. Desde ahora editar/borrar se guarda y se respeta.", "ok");
-  }
 };
 
 function deleteRequirement(reqId) {
