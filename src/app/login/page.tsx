@@ -118,12 +118,10 @@ export default function LoginPage() {
         </form>
 
         <div className="hint">
-          <strong>Usuarios demo</strong>
+          <strong>Usuarios</strong>
           <ul>
-            <li>admin@linkproject.local / admin1234</li>
-            <li>editor@linkproject.local / editor1234</li>
-            <li>gerencia@linkproject.local / gerencia1234</li>
-            <li>viewer@linkproject.local / viewer1234</li>
+            <li>lmacias@awenandwis.com / Liskeyla2026</li>
+            <li>mpluas@awenandwis.com / Maria2026</li>
           </ul>
         </div>
       </section>

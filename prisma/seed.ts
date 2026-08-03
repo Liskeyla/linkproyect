@@ -5,28 +5,16 @@ const prisma = new PrismaClient();
 
 const users = [
   {
-    email: "admin@linkproject.local",
-    name: "Administrador",
-    password: "admin1234",
+    email: "lmacias@awenandwis.com",
+    name: "Liskeyla Macías",
+    password: "Liskeyla2026",
     role: "admin",
   },
   {
-    email: "editor@linkproject.local",
-    name: "Editor PMO",
-    password: "editor1234",
+    email: "mpluas@awenandwis.com",
+    name: "María Plúas",
+    password: "Maria2026",
     role: "editor",
-  },
-  {
-    email: "gerencia@linkproject.local",
-    name: "Gerencia",
-    password: "gerencia1234",
-    role: "gerencia",
-  },
-  {
-    email: "viewer@linkproject.local",
-    name: "Solo lectura",
-    password: "viewer1234",
-    role: "viewer",
   },
 ];
 
