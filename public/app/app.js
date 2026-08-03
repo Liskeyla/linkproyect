@@ -1439,7 +1439,10 @@ function rebuildRequerimientos() {
 
   requerimientos = list.map((r, i) => ({ ...r, id: i + 1 }));
   applyStageEdits();
-  applyKnownStageProgress(requerimientos);
+  // Las listas de avance (doc/QA/dev) que cargamos son solo para Liskeyla
+  if (isLiskeylaUser()) {
+    applyKnownStageProgress(requerimientos);
+  }
   if (shouldIncludeProdCatalog()) {
     mergeProdListosInto(requerimientos);
   }
@@ -1450,15 +1453,24 @@ function rebuildRequerimientos() {
   AREAS.push(...[...new Set(requerimientos.map((r) => r.area))]);
 }
 
+function currentUserEmail() {
+  const u = typeof window.__linkprojectGetUser === "function" ? window.__linkprojectGetUser() : null;
+  return String(u?.email || "").toLowerCase();
+}
+
+/** Base histórica + avance por etapas solo para Liskeyla */
+function isLiskeylaUser() {
+  return currentUserEmail() === "lmacias@awenandwis.com";
+}
+
 function shouldIncludeProdCatalog() {
   if (typeof window.__linkprojectIncludeProdCatalog === "boolean") {
     return window.__linkprojectIncludeProdCatalog;
   }
-  const u = typeof window.__linkprojectGetUser === "function" ? window.__linkprojectGetUser() : null;
-  const email = String(u?.email || "").toLowerCase();
   // María arma todo desde cero (sin catálogo automático de producción)
-  if (email === "mpluas@awenandwis.com") return false;
-  return true;
+  if (currentUserEmail() === "mpluas@awenandwis.com") return false;
+  // Catálogo de listos en producción: solo Liskeyla / base histórica
+  return isLiskeylaUser();
 }
 
 function refreshAppFromData() {
