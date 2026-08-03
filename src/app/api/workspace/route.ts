@@ -10,7 +10,11 @@ const EMPTY_PAYLOAD = {
   reqOrder: [],
   customStages: [],
   decisionGlobal: null,
+  userOwnedData: true,
+  blankBoard: true,
 };
+
+const LISKEYLA_EMAIL = "lmacias@awenandwis.com";
 
 function workspaceIdFor(userId: string) {
   return `user:${userId}`;
@@ -45,8 +49,8 @@ async function getSessionUser() {
 }
 
 /**
- * Cada usuario tiene su propio workspace vacío al crearse.
- * Los datos solo viven en base (nunca seed desde código).
+ * Misma lógica para todos: workspace propio, vacío al crear.
+ * Liskeyla se alinea a vacío una vez (blankBoard) como María.
  */
 async function getOrCreateUserWorkspace(user: {
   id: string;
@@ -59,13 +63,29 @@ async function getOrCreateUserWorkspace(user: {
     workspace = await prisma.workspace.create({
       data: {
         id,
-        payload: JSON.stringify({ ...EMPTY_PAYLOAD, userOwnedData: true }),
+        payload: JSON.stringify(EMPTY_PAYLOAD),
+        updatedBy: user.email || null,
+      },
+    });
+    return { workspace };
+  }
+
+  const data = parsePayload(workspace.payload) as typeof EMPTY_PAYLOAD & {
+    blankBoard?: boolean;
+  };
+
+  // Una sola vez: limpia el tablero histórico de Liskeyla para igualarlo a María
+  if (user.email === LISKEYLA_EMAIL && !data.blankBoard) {
+    workspace = await prisma.workspace.update({
+      where: { id },
+      data: {
+        payload: JSON.stringify(EMPTY_PAYLOAD),
         updatedBy: user.email || null,
       },
     });
   }
 
-  return { workspace, seedDefaults: false };
+  return { workspace };
 }
 
 export async function GET() {
@@ -74,11 +94,11 @@ export async function GET() {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
 
-  const { workspace, seedDefaults } = await getOrCreateUserWorkspace(user);
+  const { workspace } = await getOrCreateUserWorkspace(user);
   const data = parsePayload(workspace.payload);
 
   return NextResponse.json({
-    data: { ...data, userOwnedData: true },
+    data: { ...data, userOwnedData: true, blankBoard: true },
     seedDefaults: false,
     includeProdCatalog: false,
     updatedAt: workspace.updatedAt,
@@ -132,14 +152,9 @@ export async function PUT(req: Request) {
       reqOrder: Array.isArray(body.reqOrder) ? body.reqOrder : current.reqOrder,
       customStages: Array.isArray(body.customStages) ? body.customStages : current.customStages,
       decisionGlobal: body.decisionGlobal !== undefined ? body.decisionGlobal : current.decisionGlobal,
-      designSourceSanitized:
-        body.designSourceSanitized !== undefined
-          ? !!body.designSourceSanitized
-          : !!(current as { designSourceSanitized?: boolean }).designSourceSanitized,
-      userOwnedData:
-        body.userOwnedData !== undefined
-          ? !!body.userOwnedData
-          : !!(current as { userOwnedData?: boolean }).userOwnedData,
+      designSourceSanitized: true,
+      userOwnedData: true,
+      blankBoard: true,
     };
   }
 

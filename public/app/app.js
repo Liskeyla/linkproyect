@@ -1154,21 +1154,6 @@ function rebuildRequerimientos() {
   AREAS.push(...[...new Set(requerimientos.map((r) => r.area))]);
 }
 
-function currentUserEmail() {
-  const u = typeof window.__linkprojectGetUser === "function" ? window.__linkprojectGetUser() : null;
-  return String(u?.email || "").toLowerCase();
-}
-
-/** Base histórica + avance por etapas solo para Liskeyla */
-function isLiskeylaUser() {
-  return currentUserEmail() === "lmacias@awenandwis.com";
-}
-
-/** María arma el tablero desde cero (misma lógica de Panorama/Detalle/Cronograma) */
-function isMariaUser() {
-  return currentUserEmail() === "mpluas@awenandwis.com";
-}
-
 function syncWorkspaceUiForUser() {
   const btn = document.getElementById("btnResetData");
   if (!btn) return;
@@ -1246,9 +1231,7 @@ function refreshAppFromData() {
     const n = buildCronoRows().length;
     status.textContent =
       n === 0
-        ? isMariaUser()
-          ? "Cronograma vacío · agrega requerimientos en Detalle (se reflejan solos)."
-          : "Cronograma vacío · agrega requerimientos en Detalle."
+        ? "Cronograma vacío · agrega requerimientos en Detalle (se reflejan solos)."
         : `Cronograma: ${n} requerimiento${n === 1 ? "" : "s"} desde Detalle · ${new Date().toLocaleString("es-EC")}`;
   }
 }
@@ -1741,11 +1724,7 @@ function buildPanorama() {
         <td colspan="7">
           <div class="empty-state">
             <p class="empty-state-title">Panorama vacío</p>
-            <p class="empty-state-text">${
-              isMariaUser()
-                ? "Agrega requerimientos en Detalle: el Panorama se arma solo por Área y etapas."
-                : "Se calcula solo con los requerimientos del Detalle."
-            }</p>
+            <p class="empty-state-text">Agrega requerimientos en Detalle: el Panorama se arma solo por Área y etapas.</p>
             <button type="button" class="btn primary" id="btnPanoramaEmptyAdd">Ir a Detalle</button>
           </div>
         </td>

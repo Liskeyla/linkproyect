@@ -52,6 +52,7 @@
       decisionGlobal: typeof state !== "undefined" ? state.decisionGlobal : null,
       designSourceSanitized: true,
       userOwnedData: true,
+      blankBoard: true,
     };
   }
 
@@ -113,11 +114,12 @@
     }
 
     const data = json.data || {};
-    const seedDefaults = !!json.seedDefaults;
-    const includeProdCatalog = json.includeProdCatalog !== false;
 
     if (typeof window.__linkprojectApplyRemote === "function") {
-      window.__linkprojectApplyRemote(data, { seedDefaults, includeProdCatalog });
+      window.__linkprojectApplyRemote(data, {
+        seedDefaults: false,
+        includeProdCatalog: false,
+      });
     }
 
     applyReadonlyUi();
