@@ -2453,7 +2453,7 @@ function renderDetail() {
                   : "Cuando un requerimiento cierre todas las etapas con fin real, aparecerá aquí."
                 : hasFilters
                   ? "Prueba limpiar área, prioridad o búsqueda, o agrega uno nuevo."
-                  : "Agrega una fila con + Agregar o crea un ítem en Cronograma y sincroniza."
+                  : "Agrega una fila con + Agregar. El Panorama y el Cronograma se actualizan solos."
             }</p>
             ${
               hasFilters
