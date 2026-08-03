@@ -105,7 +105,7 @@ export async function GET() {
     data,
     seedDefaults,
     /** María no debe recibir el catálogo automático de producción */
-    includeProdCatalog: user.email !== "mpluas@awenandwis.com",
+    includeProdCatalog: user.email === LISKEYLA_EMAIL,
     updatedAt: workspace.updatedAt,
     updatedBy: workspace.updatedBy,
     user: {

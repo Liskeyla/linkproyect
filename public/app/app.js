@@ -1463,13 +1463,33 @@ function isLiskeylaUser() {
   return currentUserEmail() === "lmacias@awenandwis.com";
 }
 
+/** María arma el tablero desde cero (misma lógica de Panorama/Detalle/Cronograma) */
+function isMariaUser() {
+  return currentUserEmail() === "mpluas@awenandwis.com";
+}
+
+function syncWorkspaceUiForUser() {
+  const btn = document.getElementById("btnResetData");
+  if (!btn) return;
+  if (isMariaUser()) {
+    btn.hidden = false;
+    btn.textContent = "Vaciar tablero";
+    btn.title = "Borra todos los requerimientos de María y deja el tablero vacío";
+  } else if (isLiskeylaUser()) {
+    btn.hidden = false;
+    btn.textContent = "Restaurar ejemplo";
+    btn.title = "Vuelve a los datos de ejemplo / base histórica";
+  } else {
+    btn.hidden = true;
+  }
+}
+
 function shouldIncludeProdCatalog() {
   if (typeof window.__linkprojectIncludeProdCatalog === "boolean") {
     return window.__linkprojectIncludeProdCatalog;
   }
-  // María arma todo desde cero (sin catálogo automático de producción)
-  if (currentUserEmail() === "mpluas@awenandwis.com") return false;
-  // Catálogo de listos en producción: solo Liskeyla / base histórica
+  // María: sin catálogo automático. Solo Liskeyla tiene listos históricos.
+  if (isMariaUser()) return false;
   return isLiskeylaUser();
 }
 
@@ -1477,6 +1497,7 @@ function refreshAppFromData() {
   rebuildRequerimientos();
   fillAreaFilter();
   syncAreaSuggestions();
+  syncWorkspaceUiForUser();
   renderKpis();
   buildPanorama();
   renderDetail();
@@ -1487,7 +1508,9 @@ function refreshAppFromData() {
     const n = buildCronoRows().length;
     status.textContent =
       n === 0
-        ? "Cronograma vacío · agrega requerimientos en Detalle."
+        ? isMariaUser()
+          ? "Cronograma vacío · agrega requerimientos en Detalle (se reflejan solos)."
+          : "Cronograma vacío · agrega requerimientos en Detalle."
         : `Cronograma: ${n} requerimiento${n === 1 ? "" : "s"} desde Detalle · ${new Date().toLocaleString("es-EC")}`;
   }
 }
@@ -1980,7 +2003,11 @@ function buildPanorama() {
         <td colspan="7">
           <div class="empty-state">
             <p class="empty-state-title">Panorama vacío</p>
-            <p class="empty-state-text">Se calcula solo con los requerimientos del Detalle.</p>
+            <p class="empty-state-text">${
+              isMariaUser()
+                ? "Agrega requerimientos en Detalle: el Panorama se arma solo por Área y etapas."
+                : "Se calcula solo con los requerimientos del Detalle."
+            }</p>
             <button type="button" class="btn primary" id="btnPanoramaEmptyAdd">Ir a Detalle</button>
           </div>
         </td>
@@ -3163,12 +3190,31 @@ document.querySelectorAll(".area-pick").forEach((sel) => {
 });
 
 document.getElementById("btnResetData").addEventListener("click", () => {
+  if (isMariaUser()) {
+    if (!confirm("¿Vaciar todo el tablero de María? Se borrarán los requerimientos guardados.")) return;
+    REQ_FUENTE = [];
+    DEV_FUENTE = [];
+    stageEdits = {};
+    reqOrder = [];
+    customStages = [];
+    saveFuentes();
+    saveStageEdits();
+    saveReqOrder();
+    saveCustomStages();
+    rebuildStagesList();
+    closeStageDrawer();
+    refreshAppFromData();
+    showToast("Tablero vacío · agrega desde Detalle", "ok");
+    return;
+  }
+
   if (!confirm("¿Restaurar los datos de ejemplo y reemplazar lo cargado?")) return;
   REQ_FUENTE = cloneFuente(DEFAULT_REQ_FUENTE);
   DEV_FUENTE = cloneFuente(DEFAULT_DEV_FUENTE);
   stageEdits = {};
   reqOrder = [];
   customStages = [];
+  window.__linkprojectDesignSourceSanitized = true;
   saveFuentes();
   saveStageEdits();
   saveReqOrder();
@@ -3215,20 +3261,22 @@ window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
     window.__linkprojectIncludeProdCatalog = options.includeProdCatalog;
   }
 
-  if (seedDefaults) {
+  // Solo Liskeyla recibe la base de ejemplo; María siempre parte de su workspace (vacío o lo que guarde)
+  if (seedDefaults && isLiskeylaUser()) {
     REQ_FUENTE = cloneFuente(DEFAULT_REQ_FUENTE);
     DEV_FUENTE = cloneFuente(DEFAULT_DEV_FUENTE);
     stageEdits = {};
     reqOrder = [];
     customStages = [];
+    window.__linkprojectDesignSourceSanitized = true;
     rebuildStagesList();
   } else {
     REQ_FUENTE = Array.isArray(payload.doc) ? payload.doc.map((r) => ({ ...r })) : [];
     DEV_FUENTE = Array.isArray(payload.dev) ? payload.dev.map((r) => ({ ...r })) : [];
     const rawEdits =
       payload.stageEdits && typeof payload.stageEdits === "object" ? payload.stageEdits : {};
-    // Una sola vez: limpia fechas auto-estimadas posteriores a Diseño
-    if (!payload.designSourceSanitized) {
+    // Limpieza de estimaciones viejas: solo Liskeyla (una vez)
+    if (isLiskeylaUser() && !payload.designSourceSanitized) {
       stageEdits = sanitizeStageEditsKeepDesignSource(rawEdits);
       window.__linkprojectDesignSourceSanitized = true;
     } else {
@@ -3249,14 +3297,10 @@ window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
     rebuildStagesList();
   }
 
-  if (seedDefaults) {
-    window.__linkprojectDesignSourceSanitized = true;
-  }
-
   if (payload.decisionGlobal) {
     state.decisionGlobal = payload.decisionGlobal;
     applyDecisionUi(payload.decisionGlobal);
-  } else if (!seedDefaults) {
+  } else if (!(seedDefaults && isLiskeylaUser())) {
     state.decisionGlobal = null;
   }
 
