@@ -431,6 +431,192 @@ const DEFAULT_PROD_LISTOS = [
 
 const EARLY_STAGE_KEYS = ["levantamiento", "prototipado", "documento"];
 
+/**
+ * Avance real (Liskeyla):
+ * 1) Documento funcional terminado (Enviado) → fechas en Lev / Proto / Doc (plan + real)
+ * 2) Fechas de QA
+ * 3) Fechas de Desarrollo
+ */
+const DOC_FUNCIONAL_DONE = [
+  { nombre: "Cero papel", area: "Operaciones", inicio: "2025-02-11", fin: "2025-02-11" },
+  { nombre: "Sellos y Precintos V1", area: "Operaciones", inicio: "2025-02-18", fin: "2025-02-18" },
+  { nombre: "Falso embarque V3 (Devoluciones y/o Rechazos)", area: "Operaciones", inicio: "2025-05-23", fin: "2025-12-08" },
+  { nombre: "Portería Web (2.0)", area: "Operaciones", inicio: "2025-05-26", fin: "2025-05-26" },
+  { nombre: "Reporte de Rechazo y Devoluciones", area: "Reportería", inicio: "2025-06-19", fin: "2025-08-12" },
+  { nombre: "Transmisión de Booking One al DMS", area: "Operaciones", inicio: "2025-06-27", fin: "2025-07-08" },
+  { nombre: "Sellos y Precintos V2", area: "Operaciones", inicio: "2025-09-09", fin: "2025-09-15" },
+  {
+    nombre: "Rediseño del módulo de inspección y despacho — Puntos de Inspección",
+    area: "R&D (Recepción y Despacho)",
+    inicio: "2025-10-02",
+    fin: "2025-10-17",
+  },
+  {
+    nombre: "Rediseño del Módulo de Lavado — Valores en decimales y visualización en reportería",
+    area: "R&D (Recepción y Despacho)",
+    inicio: "2025-10-20",
+    fin: "2025-10-31",
+  },
+  {
+    nombre: "Aplicativo móvil para turnos de evacuación y reposición para choferes",
+    area: "Operaciones",
+    inicio: "2026-02-24",
+    fin: "2026-03-13",
+  },
+  {
+    nombre: "Ajustes en validación para el rediseño de módulo de inspección y despacho (siete puntos)",
+    area: "Operaciones",
+    inicio: "2026-04-29",
+    fin: "2026-05-20",
+  },
+  { nombre: "Requerimiento Patio 4 Sur — RFS", area: "Operaciones", inicio: "2026-06-01", fin: "2026-06-03" },
+  {
+    nombre: "Servicios Turnos de Evacuación y Reposición en Portería Web",
+    area: "Operaciones",
+    inicio: "2026-06-10",
+    fin: "2026-06-25",
+  },
+  { nombre: "Transmisión de booking de SBM/Nautic", area: "Reefer (Máquina)", inicio: "2026-07-10", fin: "2026-07-20" },
+  { nombre: "Mejoras de Pruebas de Luz", area: "Operaciones", inicio: "2026-07-13", fin: "2026-07-20" },
+];
+
+const QA_STAGE_DATES = [
+  { nombre: "QA Fase 2 Cero papel", area: "Operaciones", inicio: "2025-04-21", fin: "2025-05-14", estado: "Detenido" },
+  { nombre: "Portería Web (2.0)", area: "Operaciones", inicio: "2025-06-18", fin: "2025-12-12", estado: "Detenido" },
+  { nombre: "Transmisión de Booking One al DMS", area: "Operaciones", inicio: "2025-07-25", fin: "2025-08-01", estado: "Detenido" },
+  {
+    nombre: "Códigos de partes de Contenedores bajo normas IICL",
+    area: "Estructura (Box)",
+    inicio: "2025-11-27",
+    fin: "2025-12-18",
+    estado: "Detenido",
+  },
+  {
+    nombre: "Aplicativo móvil para turnos de evacuación y reposición para choferes",
+    area: "Operaciones",
+    inicio: "2026-06-24",
+    fin: "2026-07-03",
+    estado: "En Proceso",
+  },
+];
+
+const DEV_STAGE_DATES = [
+  { nombre: "Reporte de Rechazo y Devoluciones", area: "Reportería", inicio: "2025-06-19", fin: "2025-08-12", estado: "Detenido" },
+  { nombre: "Sellos y Precintos V2", area: "Operaciones", inicio: "2025-10-10", fin: "2025-10-27", estado: "Detenido" },
+  { nombre: "Falso embarque V3 (Devoluciones y/o Rechazos)", area: "Operaciones", inicio: "2026-03-30", fin: "2026-04-17", estado: "Detenido" },
+  {
+    nombre: "Rediseño del Módulo de Lavado — Valores en decimales y visualización en reportería",
+    area: "R&D (Recepción y Despacho)",
+    inicio: "2026-05-09",
+    fin: "2026-05-27",
+    estado: "Detenido",
+  },
+  {
+    nombre: "Ajustes en validación para el rediseño de módulo de inspección y despacho (siete puntos)",
+    area: "Operaciones",
+    inicio: "2026-06-09",
+    fin: "2026-07-21",
+    estado: "En Proceso",
+  },
+  {
+    nombre: "Rediseño del módulo de inspección y despacho — Puntos de Inspección",
+    area: "R&D (Recepción y Despacho)",
+    inicio: "2026-06-09",
+    fin: "2026-07-21",
+    estado: "En Proceso",
+  },
+  { nombre: "Transmisión de booking de SBM/Nautic", area: "Reefer (Máquina)", inicio: "2026-06-09", fin: "2026-07-21", estado: "En Proceso" },
+];
+
+function findReqByName(list, nombre) {
+  return list.find((r) => namesMatch(r.nombre, nombre)) || null;
+}
+
+function datesFromEstado(inicio, fin, estado) {
+  let a = inicio;
+  let b = fin || inicio;
+  if (parseDate(b) && parseDate(a) && parseDate(b) < parseDate(a)) [a, b] = [b, a];
+  const s = String(estado || "").toLowerCase();
+  let realInicio = null;
+  let realFin = null;
+  if (s === "listo" || s === "enviado") {
+    realInicio = a;
+    realFin = b;
+  } else if (s.includes("proceso") || s.includes("detenid")) {
+    realInicio = a;
+    realFin = null;
+  }
+  return { planInicio: a, planFin: b, realInicio, realFin };
+}
+
+function patchStageDates(req, stageKey, inicio, fin, estado, note) {
+  if (!req.etapas?.[stageKey]) {
+    req.etapas[stageKey] = emptyStage(responsableEtapa(stageKey), note || "");
+  }
+  const d = datesFromEstado(inicio, fin, estado);
+  const resp = req.etapas[stageKey].responsable || responsableEtapa(stageKey);
+  req.etapas[stageKey] = stage(d.planInicio, d.planFin, d.realInicio, d.realFin, resp, note || req.etapas[stageKey].avance || "");
+}
+
+function ensureReqFromProgress(list, item, estadoDoc) {
+  let req = findReqByName(list, item.nombre);
+  if (req) {
+    if (item.area) req.area = item.area;
+    return req;
+  }
+  req = assembleRequirement({
+    nombre: item.nombre,
+    area: item.area,
+    early: emptyEarlyStages(),
+    desarrollo: null,
+    estadoDoc: estadoDoc || "Pendiente",
+    estadoDev: null,
+    index: list.length,
+    total: list.length + 1,
+  });
+  list.push(req);
+  return req;
+}
+
+/** Aplica documento terminado + QA + Desarrollo según las listas de seguimiento */
+function applyKnownStageProgress(list) {
+  DOC_FUNCIONAL_DONE.forEach((item) => {
+    const req = ensureReqFromProgress(list, item, "Enviado");
+    applyDocDatesToEarlyStages(req, item.inicio, item.fin);
+    req.estadoDoc = "Enviado";
+    req.estadoFuente = req.estadoDev || "Enviado";
+    if (item.area) req.area = item.area;
+  });
+
+  QA_STAGE_DATES.forEach((item) => {
+    const req = ensureReqFromProgress(list, item, "Enviado");
+    patchStageDates(
+      req,
+      "qa",
+      item.inicio,
+      item.fin,
+      item.estado,
+      `Etapa QA · ${item.estado}`
+    );
+    if (item.area) req.area = item.area;
+  });
+
+  DEV_STAGE_DATES.forEach((item) => {
+    const req = ensureReqFromProgress(list, item, "Enviado");
+    patchStageDates(
+      req,
+      "desarrollo",
+      item.inicio,
+      item.fin,
+      item.estado,
+      `Desarrollo · ${item.estado}`
+    );
+    req.estadoDev = item.estado;
+    req.estadoFuente = item.estado;
+    if (item.area) req.area = item.area;
+  });
+}
+
 function applyDocDatesToEarlyStages(req, docInicio, docFin) {
   let inicio = docInicio || docFin;
   let fin = docFin || docInicio;
@@ -1126,6 +1312,7 @@ function rebuildRequerimientos() {
 
   requerimientos = list.map((r, i) => ({ ...r, id: i + 1 }));
   applyStageEdits();
+  applyKnownStageProgress(requerimientos);
   if (shouldIncludeProdCatalog()) {
     mergeProdListosInto(requerimientos);
   }
