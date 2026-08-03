@@ -2639,13 +2639,33 @@ function applyDecisionUi(decision) {
   if (strong) strong.textContent = m.text;
 }
 
+function prodListosAsFuenteRows() {
+  return DEFAULT_PROD_LISTOS.map((item) => ({
+    nombre: item.nombre,
+    area: item.area,
+    inicio: item.docInicio || item.plan || item.real,
+    fin: item.docFin || item.real || item.plan,
+    estado: "Listo",
+  }));
+}
+
 window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
   const payload = data || {};
   const seedDefaults = !!options.seedDefaults;
+  const seedProdListos = !!options.seedProdListos;
 
   if (seedDefaults) {
     REQ_FUENTE = cloneFuente(DEFAULT_REQ_FUENTE);
     DEV_FUENTE = cloneFuente(DEFAULT_DEV_FUENTE);
+    stageEdits = {};
+    reqOrder = [];
+    customStages = [];
+    rebuildStagesList();
+  } else if (seedProdListos) {
+    // María: solo listos en producción; en curso queda vacío para armar desde cero
+    const rows = prodListosAsFuenteRows();
+    REQ_FUENTE = cloneFuente(rows);
+    DEV_FUENTE = cloneFuente(rows);
     stageEdits = {};
     reqOrder = [];
     customStages = [];
@@ -2672,7 +2692,7 @@ window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
   if (payload.decisionGlobal) {
     state.decisionGlobal = payload.decisionGlobal;
     applyDecisionUi(payload.decisionGlobal);
-  } else if (!seedDefaults) {
+  } else if (!seedDefaults && !seedProdListos) {
     state.decisionGlobal = null;
   }
 

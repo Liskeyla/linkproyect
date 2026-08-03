@@ -112,15 +112,16 @@
 
     const data = json.data || {};
     const seedDefaults = !!json.seedDefaults;
+    const seedProdListos = !!json.seedProdListos;
 
     if (typeof window.__linkprojectApplyRemote === "function") {
-      window.__linkprojectApplyRemote(data, { seedDefaults });
+      window.__linkprojectApplyRemote(data, { seedDefaults, seedProdListos });
     }
 
     applyReadonlyUi();
     hydrated = true;
 
-    if (seedDefaults && canWrite()) {
+    if ((seedDefaults || seedProdListos) && canWrite()) {
       schedulePersist();
     }
     return true;

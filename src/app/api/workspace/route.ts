@@ -13,6 +13,7 @@ const EMPTY_PAYLOAD = {
 };
 
 const LISKEYLA_EMAIL = "lmacias@awenandwis.com";
+const MARIA_EMAIL = "mpluas@awenandwis.com";
 
 function workspaceIdFor(userId: string) {
   return `user:${userId}`;
@@ -52,8 +53,8 @@ async function getSessionUser() {
 
 /**
  * Cada usuario tiene su propio workspace.
- * - Liskeyla: conserva base (migra "default" si existe) o pide seed de ejemplo en el cliente.
- * - María y demás: empiezan vacíos para armar desde cero.
+ * - Liskeyla: base completa (ejemplo / datos migrados).
+ * - María: vacía en "en curso", pero recibe los listos en producción para partir de ahí.
  */
 async function getOrCreateUserWorkspace(user: {
   id: string;
@@ -62,36 +63,40 @@ async function getOrCreateUserWorkspace(user: {
   const id = workspaceIdFor(user.id);
   let workspace = await prisma.workspace.findUnique({ where: { id } });
   let seedDefaults = false;
+  let seedProdListos = false;
 
-  if (workspace) {
-    return { workspace, seedDefaults: false };
-  }
+  if (!workspace) {
+    let payload = { ...EMPTY_PAYLOAD };
 
-  let payload = { ...EMPTY_PAYLOAD };
-
-  if (user.email === LISKEYLA_EMAIL) {
-    const shared = await prisma.workspace.findUnique({ where: { id: "default" } });
-    if (shared) {
-      const sharedData = parsePayload(shared.payload);
-      if (hasFuenteData(sharedData)) {
-        payload = sharedData;
+    if (user.email === LISKEYLA_EMAIL) {
+      const shared = await prisma.workspace.findUnique({ where: { id: "default" } });
+      if (shared) {
+        const sharedData = parsePayload(shared.payload);
+        if (hasFuenteData(sharedData)) {
+          payload = sharedData;
+        } else {
+          seedDefaults = true;
+        }
       } else {
         seedDefaults = true;
       }
-    } else {
-      seedDefaults = true;
+    } else if (user.email === MARIA_EMAIL) {
+      seedProdListos = true;
     }
+
+    workspace = await prisma.workspace.create({
+      data: {
+        id,
+        payload: JSON.stringify(payload),
+        updatedBy: user.email || null,
+      },
+    });
+  } else if (user.email === MARIA_EMAIL && !hasFuenteData(parsePayload(workspace.payload))) {
+    // Workspace vacío existente: cargar listos en producción una vez
+    seedProdListos = true;
   }
 
-  workspace = await prisma.workspace.create({
-    data: {
-      id,
-      payload: JSON.stringify(payload),
-      updatedBy: user.email || null,
-    },
-  });
-
-  return { workspace, seedDefaults };
+  return { workspace, seedDefaults, seedProdListos };
 }
 
 export async function GET() {
@@ -100,12 +105,13 @@ export async function GET() {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
 
-  const { workspace, seedDefaults } = await getOrCreateUserWorkspace(user);
+  const { workspace, seedDefaults, seedProdListos } = await getOrCreateUserWorkspace(user);
   const data = parsePayload(workspace.payload);
 
   return NextResponse.json({
     data,
     seedDefaults,
+    seedProdListos,
     updatedAt: workspace.updatedAt,
     updatedBy: workspace.updatedBy,
     user: {
