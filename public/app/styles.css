@@ -110,9 +110,8 @@ body {
 }
 
 body.is-readonly .detail-toolbar #btnAddReq,
-body.is-readonly #btnApplyData,
 body.is-readonly #btnResetData,
-body.is-readonly #btnToggleItemForm {
+body.is-readonly #btnGoDetalle {
   opacity: 0.55;
   pointer-events: none;
 }
@@ -1584,7 +1583,19 @@ table {
 
 .req-edit-form {
   display: grid;
-  gap: 10px;
+  gap: 12px;
+}
+
+.edit-req-basics {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f3f7fb;
+  border: 1px solid var(--line);
+}
+
+.edit-req-basics .edit-field {
+  display: grid;
+  gap: 6px;
 }
 
 .edit-intro {
@@ -1941,6 +1952,41 @@ tr.req-row-active .req-cell {
   width: 100%;
 }
 
+.area-combo {
+  display: grid;
+  gap: 6px;
+}
+
+.area-combo .area-pick,
+.area-combo input[name="area"] {
+  width: 100%;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.74rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.crono-row-link {
+  cursor: pointer;
+}
+
+.crono-row-link:hover {
+  background: rgba(15, 76, 117, 0.04);
+}
+
+.crono-bar-empty {
+  position: absolute;
+  left: 8px;
+  top: 14px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .crono-legend {
   display: flex;
   flex-wrap: wrap;
@@ -2136,9 +2182,19 @@ tr.req-row-active .req-cell {
 }
 
 .crono-empty {
-  padding: 28px;
-  text-align: center;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 28px 18px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background: #f7fafc;
   color: var(--muted);
+  text-align: center;
+}
+
+.crono-empty .btn {
+  margin-top: 4px;
 }
 
 @media (max-width: 1100px) {

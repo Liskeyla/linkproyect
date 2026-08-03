@@ -24,7 +24,7 @@
 
     document.body.classList.toggle("is-readonly", !write);
 
-    const disableIds = ["btnAddReq", "btnApplyData", "btnResetData", "btnToggleItemForm"];
+    const disableIds = ["btnAddReq", "btnResetData", "btnGoDetalle"];
     disableIds.forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.disabled = !write;

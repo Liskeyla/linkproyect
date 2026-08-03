@@ -78,7 +78,10 @@
     <section class="panel active" id="panel-panorama" role="tabpanel">
       <div class="panel-head">
         <h2>Panorama por área</h2>
-        <p>Cuántos requerimientos hay y qué % de avance lleva cada área en diseño, desarrollo, QA y producción.</p>
+        <p>
+          Se calcula solo con lo que hay en <strong>Detalle</strong>: conteo y % de avance por área
+          (diseño, desarrollo, QA y producción).
+        </p>
       </div>
       <div class="table-shell">
         <table class="panorama-table" id="panoramaTable">
@@ -144,7 +147,21 @@
           </label>
           <label class="field">
             Área
-            <input type="text" name="area" required list="areaSuggestions" placeholder="Operaciones" />
+            <div class="area-combo">
+              <select id="areaPickDetalle" class="area-pick" aria-label="Elegir área sugerida">
+                <option value="">Elegir sugerida…</option>
+              </select>
+              <input
+                type="text"
+                name="area"
+                id="areaInputDetalle"
+                required
+                list="areaSuggestions"
+                placeholder="O escribe un área nueva"
+                autocomplete="off"
+              />
+            </div>
+            <small class="field-hint">Puedes elegir de la lista o escribir otra área</small>
           </label>
           <label class="field">
             Estado
@@ -255,60 +272,15 @@
         <div>
           <h2>Cronograma</h2>
           <p>
-            Línea de tiempo por requerimiento. Crea o ajusta ítems aquí y usa
-            <strong>Sincronizar</strong> para reflejarlos en Detalle.
+            Línea de tiempo tomada del <strong>Detalle</strong> (fechas de documento y desarrollo).
+            Para agregar o editar, usa Detalle; aquí solo se visualiza.
           </p>
         </div>
         <div class="form-actions">
           <button type="button" class="btn ghost" id="btnResetData" title="Vuelve a los datos de ejemplo">Restaurar ejemplo</button>
-          <button type="button" class="btn ghost" id="btnToggleItemForm">+ Nuevo ítem</button>
-          <button type="button" class="btn primary" id="btnApplyData" title="Actualiza Detalle y Panorama con estos ítems">Sincronizar</button>
+          <button type="button" class="btn primary" id="btnGoDetalle" title="Ir a Detalle para agregar">+ Agregar en Detalle</button>
         </div>
       </div>
-
-      <form id="formCronograma" class="crono-form" hidden>
-        <div class="crono-form-grid">
-          <label class="field">
-            Requerimiento
-            <input type="text" name="nombre" required placeholder="Nombre del requerimiento" />
-          </label>
-          <label class="field">
-            Área
-            <input type="text" name="area" required list="areaSuggestions" placeholder="Operaciones" />
-          </label>
-          <label class="field">
-            Estado
-            <select name="estado" required>
-              <option value="Listo">Listo</option>
-              <option value="Enviado">Enviado</option>
-              <option value="En Proceso">En Proceso</option>
-              <option value="Detenido">Detenido</option>
-              <option value="Planificar">Planificar</option>
-              <option value="Pendiente" selected>Pendiente</option>
-            </select>
-          </label>
-          <label class="field">
-            Fecha inicio
-            <input type="date" name="inicio" required />
-          </label>
-          <label class="field">
-            Fecha fin
-            <input type="date" name="fin" required />
-          </label>
-          <label class="field">
-            Aplica a
-            <select name="aplica" required>
-              <option value="ambos" selected>Documento + Desarrollo</option>
-              <option value="documento">Solo documento funcional</option>
-              <option value="desarrollo">Solo desarrollo</option>
-            </select>
-          </label>
-        </div>
-        <div class="form-actions">
-          <button type="button" class="btn ghost" id="btnCancelItemForm">Cancelar</button>
-          <button type="submit" class="btn primary">Agregar al cronograma</button>
-        </div>
-      </form>
 
       <div class="crono-legend">
         <span><i class="lg doc"></i> Documento funcional</span>
@@ -321,18 +293,9 @@
         <div class="crono-body" id="cronoBody"></div>
       </div>
 
-      <datalist id="areaSuggestions">
-        <option value="Operaciones"></option>
-        <option value="Liquidaciones"></option>
-        <option value="Reportería"></option>
-        <option value="Recepción y Despacho"></option>
-        <option value="R&D (Recepción y Despacho)"></option>
-        <option value="Reparaciones Reefer"></option>
-        <option value="Reefer (Máquina)"></option>
-        <option value="Estructura (Box)"></option>
-      </datalist>
+      <datalist id="areaSuggestions"></datalist>
 
-      <p class="hint" id="cargaStatus">Cronograma unificado · los cambios se reflejan en el detalle al sincronizar.</p>
+      <p class="hint" id="cargaStatus">Cronograma · refleja el Detalle automáticamente.</p>
     </section>
 
     <!-- DECISIÓN -->
@@ -397,7 +360,7 @@
     </section>
 
     <footer class="footer">
-      LinkProject · Pantalla de presentación a gerencia · Datos de ejemplo para validación de formato
+      LinkProject · Seguimiento por área desde el Detalle de requerimientos
     </footer>
   </div>
 

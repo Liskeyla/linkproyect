@@ -105,6 +105,23 @@ function removeCustomStageColumn(key) {
 
 const AREAS = []; // se llena desde los requerimientos reales
 
+/** Sugerencias fijas de área (también se pueden escribir otras) */
+const DEFAULT_AREA_SUGGESTIONS = [
+  "Operaciones",
+  "Liquidaciones",
+  "Reportería",
+  "Recepción y Despacho",
+  "R&D (Recepción y Despacho)",
+  "Reparaciones Reefer",
+  "Reefer (Máquina)",
+  "Estructura (Box)",
+  "Inspección y Despacho",
+  "Reparaciones Box",
+  "Facturación",
+  "Administración de Patio",
+  "Almacén",
+];
+
 /**
  * Cumplimiento vs fecha fin planificada:
  * - Si hay fin real: 100% si realFin <= planFin; si se atrasó, baja proporcional.
@@ -1156,6 +1173,7 @@ function shouldIncludeProdCatalog() {
 function refreshAppFromData() {
   rebuildRequerimientos();
   fillAreaFilter();
+  syncAreaSuggestions();
   renderKpis();
   buildPanorama();
   renderDetail();
@@ -1163,8 +1181,56 @@ function refreshAppFromData() {
   renderCronograma();
   const status = document.getElementById("cargaStatus");
   if (status) {
-    status.textContent = `Cronograma: ${buildCronoRows().length} ítems · Doc ${REQ_FUENTE.length} · Dev ${DEV_FUENTE.length} · ${new Date().toLocaleString("es-EC")}`;
+    const n = buildCronoRows().length;
+    status.textContent =
+      n === 0
+        ? "Cronograma vacío · agrega requerimientos en Detalle."
+        : `Cronograma: ${n} requerimiento${n === 1 ? "" : "s"} desde Detalle · ${new Date().toLocaleString("es-EC")}`;
   }
+}
+
+function syncAreaSuggestions() {
+  const merged = [...new Set([...DEFAULT_AREA_SUGGESTIONS, ...AREAS].filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "es", { sensitivity: "base" })
+  );
+  const list = document.getElementById("areaSuggestions");
+  if (list) {
+    list.innerHTML = merged.map((a) => `<option value="${escapeHtml(a)}"></option>`).join("");
+  }
+  document.querySelectorAll(".area-pick").forEach((sel) => {
+    const current = sel.value;
+    sel.innerHTML =
+      `<option value="">Elegir sugerida…</option>` +
+      merged.map((a) => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join("");
+    if (current && merged.includes(current)) sel.value = current;
+  });
+}
+
+function earliestDate(...vals) {
+  const parsed = vals.map(parseDate).filter(Boolean);
+  if (!parsed.length) return null;
+  return toIso(new Date(Math.min(...parsed)));
+}
+
+function latestDate(...vals) {
+  const parsed = vals.map(parseDate).filter(Boolean);
+  if (!parsed.length) return null;
+  return toIso(new Date(Math.max(...parsed)));
+}
+
+function spanFromStages(etapas, keys) {
+  const inicios = [];
+  const fines = [];
+  keys.forEach((key) => {
+    const et = etapas?.[key];
+    if (!et) return;
+    if (et.realInicio || et.planInicio) inicios.push(et.realInicio || et.planInicio);
+    if (et.realFin || et.planFin) fines.push(et.realFin || et.planFin);
+  });
+  const inicio = earliestDate(...inicios);
+  const fin = latestDate(...fines) || inicio;
+  if (!inicio && !fin) return null;
+  return { inicio: inicio || fin, fin: fin || inicio };
 }
 
 function formToRow(form) {
@@ -1180,43 +1246,56 @@ function formToRow(form) {
 }
 
 function buildCronoRows() {
-  const rows = [];
-  const pushOrMerge = (src, kind) => {
-    src.forEach((item, idx) => {
-      let row = rows.find((r) => namesMatch(r.nombre, item.nombre));
-      if (!row) {
-        row = {
-          key: `${normName(item.nombre)}-${rows.length}`,
-          nombre: item.nombre,
-          area: item.area,
-          doc: null,
-          docIndex: -1,
-          dev: null,
-          devIndex: -1,
-        };
-        rows.push(row);
-      }
-      if (kind === "doc") {
-        row.doc = item;
-        row.docIndex = idx;
-        if (!row.area) row.area = item.area;
-      } else {
-        row.dev = item;
-        row.devIndex = idx;
-        if (!row.area) row.area = item.area;
-      }
-    });
-  };
-  pushOrMerge(REQ_FUENTE, "doc");
-  pushOrMerge(DEV_FUENTE, "dev");
-  return rows;
+  // Solo Detalle: cada requerimiento es una fila del cronograma
+  return requerimientos.map((r, i) => {
+    const docSpan = spanFromStages(r.etapas, [
+      "levantamiento",
+      "prototipado",
+      "documento",
+      "aprobacion",
+      "disenoVisual",
+    ]);
+    const devSpan = spanFromStages(r.etapas, ["desarrollo", "qa", "procesos", "pruebasCompletas"]);
+    return {
+      key: r.id || `${normName(r.nombre)}-${i}`,
+      reqId: r.id,
+      nombre: r.nombre,
+      area: r.area,
+      doc: docSpan
+        ? {
+            nombre: r.nombre,
+            area: r.area,
+            inicio: docSpan.inicio,
+            fin: docSpan.fin,
+            estado: r.estadoDoc || r.estadoFuente || "Pendiente",
+          }
+        : null,
+      docIndex: -1,
+      dev: devSpan
+        ? {
+            nombre: r.nombre,
+            area: r.area,
+            inicio: devSpan.inicio,
+            fin: devSpan.fin,
+            estado: r.estadoDev || r.estadoFuente || "Pendiente",
+          }
+        : null,
+      devIndex: -1,
+      estado: r.estadoDev || r.estadoDoc || r.estadoFuente || "Pendiente",
+    };
+  });
 }
 
 function cronoRange() {
   const dates = [];
-  [...REQ_FUENTE, ...DEV_FUENTE].forEach((r) => {
-    if (r.inicio) dates.push(parseDate(r.inicio));
-    if (r.fin) dates.push(parseDate(r.fin));
+  requerimientos.forEach((r) => {
+    Object.values(r.etapas || {}).forEach((et) => {
+      if (!et) return;
+      [et.planInicio, et.planFin, et.realInicio, et.realFin].forEach((d) => {
+        const p = parseDate(d);
+        if (p) dates.push(p);
+      });
+    });
   });
   const valid = dates.filter(Boolean);
   if (!valid.length) {
@@ -1302,20 +1381,27 @@ function renderCronograma() {
   `;
 
   if (!rows.length) {
-    body.innerHTML = `<div class="crono-empty">No hay ítems. Agrega un requerimiento al cronograma.</div>`;
+    body.innerHTML = `
+      <div class="crono-empty">
+        <p><strong>Sin requerimientos aún.</strong></p>
+        <p>El cronograma se arma solo con lo que agregues en <strong>Detalle</strong>.</p>
+        <button type="button" class="btn primary" id="btnCronoEmptyAdd">Ir a Detalle</button>
+      </div>`;
+    document.getElementById("btnCronoEmptyAdd")?.addEventListener("click", goToDetalleAdd);
     return;
   }
 
   body.innerHTML = rows
     .map((row, i) => {
-      const estado = row.dev?.estado || row.doc?.estado || "Pendiente";
+      const estado = row.estado || row.dev?.estado || row.doc?.estado || "Pendiente";
       const docBar = row.doc ? barStyle(row.doc.inicio, row.doc.fin, start, end) : null;
       const devBar = row.dev ? barStyle(row.dev.inicio, row.dev.fin, start, end) : null;
       const owner =
         row.dev ? RESPONSABLES.desarrollo : row.doc ? RESPONSABLES.documento : RESPONSABLES.levantamiento;
+      const noBars = !docBar && !devBar;
 
       return `
-      <div class="crono-row" data-key="${row.key}">
+      <div class="crono-row crono-row-link" data-key="${row.key}" data-req-id="${escapeHtml(row.reqId || "")}" title="Abrir en Detalle">
         <div class="crono-meta">
           <div class="crono-item">
             <strong>${i + 1}. ${escapeHtml(row.nombre)}</strong>
@@ -1324,10 +1410,6 @@ function renderCronograma() {
           <div class="crono-area">${escapeHtml(row.area || "—")}</div>
           <div class="crono-status">
             <span class="crono-pill ${statusTone(estado)}">${escapeHtml(estado)}</span>
-            <div class="crono-actions">
-              ${row.docIndex >= 0 ? `<button type="button" class="btn-mini bad" data-del-doc="${row.docIndex}" title="Quitar documento">Doc</button>` : ""}
-              ${row.devIndex >= 0 ? `<button type="button" class="btn-mini bad" data-del-dev="${row.devIndex}" title="Quitar desarrollo">Dev</button>` : ""}
-            </div>
           </div>
         </div>
         <div class="crono-track" style="grid-template-columns: repeat(${months.length}, minmax(72px, 1fr))">
@@ -1347,6 +1429,7 @@ function renderCronograma() {
                 </div>`
               : ""
           }
+          ${noBars ? `<div class="crono-bar-empty">Sin fechas aún · edita en Detalle</div>` : ""}
         </div>
       </div>`;
     })
@@ -1395,6 +1478,7 @@ function stagePct(et) {
 }
 
 function renderKpis() {
+  recomputePanoramaFromDetail();
   const total = PANORAMA_TOTAL.total;
   const enProd = PANORAMA_TOTAL.produccion.count;
   const enDiseno = PANORAMA_TOTAL.diseno.count;
@@ -1421,72 +1505,138 @@ function weightedStagePct(stageKey) {
   return Math.round((sum / weight) * 10) / 10;
 }
 
-/** Datos oficiales del panorama general logrado */
+/** Buckets del panorama derivados del detalle */
 const PANORAMA_STAGES = [
-  { key: "diseno", label: "Diseño" },
-  { key: "desarrollo", label: "Desarrollo IT" },
-  { key: "qa", label: "Pruebas QA" },
-  { key: "produccion", label: "Producción" },
+  { key: "diseno", label: "Diseño", stageKeys: ["disenoVisual", "documento", "prototipado", "levantamiento"] },
+  { key: "desarrollo", label: "Desarrollo IT", stageKeys: ["desarrollo"] },
+  { key: "qa", label: "Pruebas QA", stageKeys: ["qa", "procesos", "pruebasCompletas"] },
+  { key: "produccion", label: "Producción", stageKeys: ["produccion"] },
 ];
 
-const PANORAMA_DATA = [
-  {
-    area: "Inspección y Despacho",
-    diseno: { count: 1, pct: 0 },
-    desarrollo: { count: 3, pct: 50 },
-    qa: { count: 0, pct: 0 },
-    produccion: { count: 2, pct: 33.3 },
-    total: 6,
-  },
-  {
-    area: "Reparaciones Box",
-    diseno: { count: 4, pct: 0 },
-    desarrollo: { count: 0, pct: 0 },
-    qa: { count: 1, pct: 20 },
-    produccion: { count: 0, pct: 0 },
-    total: 5,
-  },
-  {
-    area: "Reparaciones Reefer",
-    diseno: { count: 7, pct: 10 },
-    desarrollo: { count: 1, pct: 8 },
-    qa: { count: 1, pct: 8 },
-    produccion: { count: 4, pct: 31 },
-    total: 13,
-  },
-  {
-    area: "Liquidaciones",
-    diseno: { count: 3, pct: 0 },
-    desarrollo: { count: 0, pct: 0 },
-    qa: { count: 0, pct: 0 },
-    produccion: { count: 6, pct: 66.7 },
-    total: 9,
-  },
-  {
-    area: "Operaciones",
-    diseno: { count: 11, pct: 30 },
-    desarrollo: { count: 2, pct: 7 },
-    qa: { count: 4, pct: 12 },
-    produccion: { count: 16, pct: 48 },
-    total: 33,
-  },
-  {
-    area: "Reportería",
-    diseno: { count: 12, pct: 0 },
-    desarrollo: { count: 0, pct: 0 },
-    qa: { count: 0, pct: 0 },
-    produccion: { count: 3, pct: 20 },
-    total: 15,
-  },
-];
-
-const PANORAMA_TOTAL = {
-  diseno: { count: 38, pct: null },
-  desarrollo: { count: 6, pct: null },
-  qa: { count: 6, pct: null },
-  produccion: { count: 31, pct: null },
-  total: 81,
+/** Se recalcula desde `requerimientos` (detalle) */
+let PANORAMA_DATA = [];
+let PANORAMA_TOTAL = {
+  diseno: { count: 0, pct: null },
+  desarrollo: { count: 0, pct: null },
+  qa: { count: 0, pct: null },
+  produccion: { count: 0, pct: null },
+  total: 0,
 };
+
+function stageHasActivity(et) {
+  if (!et) return false;
+  return !!(et.planInicio || et.planFin || et.realInicio || et.realFin);
+}
+
+function pickStageForBucket(req, stageKeys) {
+  for (const key of stageKeys) {
+    const et = req.etapas?.[key];
+    if (stageHasActivity(et)) return et;
+  }
+  return null;
+}
+
+/**
+ * Cada requerimiento cuenta en UNA sola columna del panorama
+ * (la etapa más avanzada con fechas), y se agrupa por su Área del Detalle.
+ */
+function resolvePanoramaBucket(req) {
+  const order = [
+    { key: "produccion", stageKeys: ["produccion"] },
+    { key: "qa", stageKeys: ["qa", "procesos", "pruebasCompletas"] },
+    { key: "desarrollo", stageKeys: ["desarrollo"] },
+    { key: "diseno", stageKeys: ["disenoVisual", "documento", "prototipado", "levantamiento"] },
+  ];
+
+  if (isReqListo(req)) return { bucket: "produccion", et: req.etapas?.produccion || null };
+
+  for (const item of order) {
+    const et = pickStageForBucket(req, item.stageKeys);
+    if (et) return { bucket: item.key, et };
+  }
+  return { bucket: "diseno", et: null };
+}
+
+function recomputePanoramaFromDetail() {
+  const byArea = new Map();
+
+  const ensure = (area) => {
+    const key = String(area || "").trim() || "Sin área";
+    if (!byArea.has(key)) {
+      byArea.set(key, {
+        area: key,
+        diseno: { count: 0, pctSum: 0 },
+        desarrollo: { count: 0, pctSum: 0 },
+        qa: { count: 0, pctSum: 0 },
+        produccion: { count: 0, pctSum: 0 },
+        total: 0,
+      });
+    }
+    return byArea.get(key);
+  };
+
+  requerimientos.forEach((req) => {
+    const row = ensure(req.area);
+    row.total += 1;
+    const { bucket, et } = resolvePanoramaBucket(req);
+    const pct = et ? stagePct(et) : 0;
+    row[bucket].count += 1;
+    row[bucket].pctSum += pct == null ? 0 : pct;
+  });
+
+  PANORAMA_DATA = [...byArea.values()]
+    .map((row) => {
+      const out = { area: row.area, total: row.total };
+      PANORAMA_STAGES.forEach((bucket) => {
+        const cell = row[bucket.key];
+        out[bucket.key] = {
+          count: cell.count,
+          pct: cell.count ? Math.round((cell.pctSum / cell.count) * 10) / 10 : 0,
+        };
+      });
+      return out;
+    })
+    .sort((a, b) => a.area.localeCompare(b.area, "es"));
+
+  const totals = {
+    diseno: { count: 0, pctSum: 0 },
+    desarrollo: { count: 0, pctSum: 0 },
+    qa: { count: 0, pctSum: 0 },
+    produccion: { count: 0, pctSum: 0 },
+    total: 0,
+  };
+  PANORAMA_DATA.forEach((row) => {
+    totals.total += row.total;
+    PANORAMA_STAGES.forEach((bucket) => {
+      totals[bucket.key].count += row[bucket.key].count;
+      totals[bucket.key].pctSum += row[bucket.key].count * row[bucket.key].pct;
+    });
+  });
+
+  PANORAMA_TOTAL = {
+    total: totals.total,
+    diseno: {
+      count: totals.diseno.count,
+      pct: totals.diseno.count ? Math.round((totals.diseno.pctSum / totals.diseno.count) * 10) / 10 : null,
+    },
+    desarrollo: {
+      count: totals.desarrollo.count,
+      pct: totals.desarrollo.count
+        ? Math.round((totals.desarrollo.pctSum / totals.desarrollo.count) * 10) / 10
+        : null,
+    },
+    qa: {
+      count: totals.qa.count,
+      pct: totals.qa.count ? Math.round((totals.qa.pctSum / totals.qa.count) * 10) / 10 : null,
+    },
+    produccion: {
+      count: totals.produccion.count,
+      pct: totals.produccion.count
+        ? Math.round((totals.produccion.pctSum / totals.produccion.count) * 10) / 10
+        : null,
+    },
+  };
+}
 
 function formatPct(pct) {
   if (pct == null || pct === "") return "";
@@ -1494,8 +1644,25 @@ function formatPct(pct) {
 }
 
 function buildPanorama() {
+  recomputePanoramaFromDetail();
   const tbody = document.querySelector("#panoramaTable tbody");
   const tfoot = document.querySelector("#panoramaTable tfoot");
+
+  if (!PANORAMA_DATA.length) {
+    tbody.innerHTML = `
+      <tr class="empty-row">
+        <td colspan="7">
+          <div class="empty-state">
+            <p class="empty-state-title">Panorama vacío</p>
+            <p class="empty-state-text">Se calcula solo con los requerimientos del Detalle.</p>
+            <button type="button" class="btn primary" id="btnPanoramaEmptyAdd">Ir a Detalle</button>
+          </div>
+        </td>
+      </tr>`;
+    tfoot.innerHTML = "";
+    document.getElementById("btnPanoramaEmptyAdd")?.addEventListener("click", goToDetalleAdd);
+    return;
+  }
 
   tbody.innerHTML = PANORAMA_DATA.map(
     (row, i) => `
@@ -1547,6 +1714,7 @@ function fillAreaFilter() {
     sel.appendChild(opt);
   });
   if ([...sel.options].some((o) => o.value === current)) sel.value = current;
+  syncAreaSuggestions();
 }
 
 /** Completamente listo: todas las etapas base tienen fecha fin real (incluida producción). */
@@ -2095,16 +2263,45 @@ function openReqEditor(reqId, focusStageKey) {
   document.getElementById("drawerMeta").innerHTML = `
     <span class="badge ${req.prioridad.toLowerCase()}">${req.prioridad}</span>
     <span class="pct-pill ${pctClass(totalPct)}">${totalPct}%</span>
-    <span class="badge baja">${req.area}</span>
     ${isReqListo(req) ? `<span class="badge listo-move">En producción</span>` : ""}
   `;
 
   document.getElementById("drawerGrid").innerHTML = `
     <form id="reqEditForm" class="req-edit-form">
-      <p class="edit-intro">Completa <strong>inicio</strong> y <strong>fin</strong> (plan y real). El retraso se calcula solo si el real supera el plan. Guarda para ver el cambio en la tabla.</p>
+      <p class="edit-intro">El <strong>Área</strong> agrupa el Panorama. Completa fechas por etapa y guarda: Panorama y Cronograma se actualizan solos.</p>
+      <div class="edit-req-basics">
+        <label class="edit-field">
+          <span>Área</span>
+          <div class="area-combo">
+            <select class="area-pick" id="editAreaPick" aria-label="Elegir área sugerida">
+              <option value="">Elegir sugerida…</option>
+            </select>
+            <input
+              type="text"
+              name="reqArea"
+              id="editAreaInput"
+              required
+              list="areaSuggestions"
+              value="${escapeHtml(req.area || "")}"
+              placeholder="O escribe un área nueva"
+              autocomplete="off"
+            />
+          </div>
+        </label>
+      </div>
       ${STAGES.map((s) => editStageSection(req, s)).join("")}
     </form>
   `;
+  syncAreaSuggestions();
+  const areaPick = document.getElementById("editAreaPick");
+  const areaInput = document.getElementById("editAreaInput");
+  if (areaPick && areaInput) {
+    if ([...areaPick.options].some((o) => o.value === req.area)) areaPick.value = req.area;
+    areaPick.onchange = () => {
+      if (!areaPick.value) return;
+      areaInput.value = areaPick.value;
+    };
+  }
 
   document.getElementById("drawerActions").innerHTML = `
     <div class="drawer-actions-main">
@@ -2149,6 +2346,18 @@ function saveReqEditor(reqId, form) {
   const key = normName(req.nombre);
   if (!stageEdits[key]) stageEdits[key] = {};
 
+  const newArea = String(fd.get("reqArea") || "").trim();
+  if (newArea && newArea !== req.area) {
+    req.area = newArea;
+    REQ_FUENTE.forEach((r) => {
+      if (namesMatch(r.nombre, req.nombre)) r.area = newArea;
+    });
+    DEV_FUENTE.forEach((r) => {
+      if (namesMatch(r.nombre, req.nombre)) r.area = newArea;
+    });
+    saveFuentes();
+  }
+
   STAGES.forEach((s) => {
     const patch = {
       planInicio: blankToNull(fd.get(`${s.key}.planInicio`)),
@@ -2167,7 +2376,14 @@ function saveReqEditor(reqId, form) {
   const wasListos = detailBucket === "listos";
   detailBucket = listo ? "listos" : "curso";
   activeEditReqId = reqId;
+
+  AREAS.length = 0;
+  AREAS.push(...[...new Set(requerimientos.map((r) => r.area).filter(Boolean))]);
+  fillAreaFilter();
+  renderKpis();
+  buildPanorama();
   renderDetail();
+  renderCronograma();
   renderDecisionSummary();
 
   const drawer = document.getElementById("stageDrawer");
@@ -2185,8 +2401,8 @@ function saveReqEditor(reqId, form) {
   }
   showToast(
     listo && !wasListos
-      ? `"${req.nombre}" guardado y movido a Listos`
-      : `Cambios guardados en "${req.nombre}"`,
+      ? `"${req.nombre}" guardado y movido a Listos · Panorama actualizado`
+      : `Guardado · Panorama y Cronograma actualizados`,
     "ok"
   );
 }
@@ -2563,58 +2779,38 @@ document.getElementById("btnExport").addEventListener("click", () => {
   URL.revokeObjectURL(a.href);
 });
 
-/* Cronograma */
-document.getElementById("formCronograma").addEventListener("submit", (e) => {
-  e.preventDefault();
-  const row = formToRow(e.target);
-  if (!row.nombre || !row.area || !row.inicio || !row.fin) return;
-  const payload = {
-    nombre: row.nombre,
-    area: row.area,
-    inicio: row.inicio,
-    fin: row.fin,
-    estado: row.estado,
-  };
-  if (row.aplica === "documento" || row.aplica === "ambos") REQ_FUENTE.push({ ...payload });
-  if (row.aplica === "desarrollo" || row.aplica === "ambos") DEV_FUENTE.push({ ...payload });
-  saveFuentes();
-  refreshAppFromData();
-  e.target.reset();
-  e.target.hidden = true;
-});
+/* Cronograma — solo lectura desde Detalle */
+function goToDetalleAdd() {
+  activateTab("detalle");
+  setDetailBucket("curso");
+  const form = document.getElementById("formNuevoReq");
+  if (!form) return;
+  form.hidden = false;
+  if (!form.inicio.value) form.inicio.value = todayIso();
+  if (!form.fin.value) form.fin.value = todayIso();
+  form.nombre?.focus();
+}
 
-document.getElementById("btnToggleItemForm").addEventListener("click", () => {
-  const form = document.getElementById("formCronograma");
-  form.hidden = !form.hidden;
-});
-
-document.getElementById("btnCancelItemForm").addEventListener("click", () => {
-  const form = document.getElementById("formCronograma");
-  form.reset();
-  form.hidden = true;
-});
+document.getElementById("btnGoDetalle")?.addEventListener("click", goToDetalleAdd);
 
 document.getElementById("cronoBody").addEventListener("click", (e) => {
-  const delDoc = e.target.closest("[data-del-doc]");
-  const delDev = e.target.closest("[data-del-dev]");
-  if (delDoc) {
-    REQ_FUENTE.splice(Number(delDoc.dataset.delDoc), 1);
-    saveFuentes();
-    refreshAppFromData();
-    return;
-  }
-  if (delDev) {
-    DEV_FUENTE.splice(Number(delDev.dataset.delDev), 1);
-    saveFuentes();
-    refreshAppFromData();
-  }
+  if (e.target.closest("button")) return;
+  const row = e.target.closest(".crono-row[data-req-id]");
+  const reqId = row?.dataset?.reqId;
+  if (!reqId) return;
+  activateTab("detalle");
+  openReqEditor(reqId);
 });
 
-document.getElementById("btnApplyData").addEventListener("click", () => {
-  saveFuentes();
-  refreshAppFromData();
-  activateTab("detalle");
-  showToast("Cronograma sincronizado con Detalle", "ok");
+document.querySelectorAll(".area-pick").forEach((sel) => {
+  sel.addEventListener("change", () => {
+    if (!sel.value) return;
+    const input = sel.closest(".area-combo")?.querySelector('input[name="area"]');
+    if (input) {
+      input.value = sel.value;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
 });
 
 document.getElementById("btnResetData").addEventListener("click", () => {
