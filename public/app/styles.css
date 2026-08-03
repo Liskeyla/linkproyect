@@ -1706,6 +1706,17 @@ table {
   gap: 8px;
 }
 
+.edit-stage-real-only {
+  grid-template-columns: 1fr 1fr;
+}
+
+.edit-stage-hint {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
 .edit-field {
   display: grid;
   gap: 4px;

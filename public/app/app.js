@@ -2042,11 +2042,12 @@ function clientWaitLabels(stageKey) {
 
 function reqClienteEsperaCell(reqId, stageDef, et) {
   const labels = clientWaitLabels(stageDef.key);
-  const inicio = et.realInicio || et.planInicio;
-  const fin = et.realFin;
+  // Solo fechas reales (sin plan)
+  const inicio = et.realInicio || null;
+  const fin = et.realFin || null;
   const metrics = realStageMetrics({
-    planInicio: et.planInicio,
-    planFin: et.planFin,
+    planInicio: null,
+    planFin: null,
     realInicio: inicio,
     realFin: fin,
   });
@@ -2254,9 +2255,9 @@ function editStageSection(req, stageDef) {
   const metrics = realStageMetrics(
     stageDef.clientWait
       ? {
-          planInicio: et.planInicio,
-          planFin: et.planFin,
-          realInicio: et.realInicio || et.planInicio,
+          planInicio: null,
+          planFin: null,
+          realInicio: et.realInicio,
           realFin: et.realFin,
         }
       : et
@@ -2269,7 +2270,42 @@ function editStageSection(req, stageDef) {
       ? "Fin / F. producción real"
       : "Fin real";
   const iniRealLabel = stageDef.clientWait ? labels.startTitle : "Inicio real";
-  const iniPlanLabel = stageDef.clientWait ? "Inicio plazo estimado" : "Inicio planificado";
+  const iniPlanLabel = "Inicio planificado";
+
+  // Aprobación y Pruebas completas: solo fechas reales (sin plan)
+  if (stageDef.clientWait) {
+    return `
+    <section class="edit-stage group-${stageDef.group || "default"}" id="edit-stage-${stageDef.key}" data-stage="${stageDef.key}">
+      <header class="edit-stage-head">
+        <div>
+          <h4>${stageDef.label}</h4>
+          <p class="edit-stage-role">${ROLES[stageDef.key] || ""}</p>
+        </div>
+        <span class="edit-stage-status ${metrics.tone || "muted"}">${metrics.statusLabel}</span>
+      </header>
+      <div class="edit-stage-grid edit-stage-real-only">
+        <label class="edit-field">
+          <span>${iniRealLabel}</span>
+          <input type="date" name="${stageDef.key}.realInicio" value="${dateInputVal(et.realInicio)}" />
+        </label>
+        <label class="edit-field">
+          <span>${finRealLabel}</span>
+          <input type="date" name="${stageDef.key}.realFin" value="${dateInputVal(et.realFin)}" />
+        </label>
+        <input type="hidden" name="${stageDef.key}.planInicio" value="" />
+        <input type="hidden" name="${stageDef.key}.planFin" value="" />
+        <label class="edit-field full">
+          <span>Responsable</span>
+          <input type="text" name="${stageDef.key}.responsable" value="${escapeHtml(et.responsable || "")}" />
+        </label>
+        <label class="edit-field full">
+          <span>Avance / nota</span>
+          <textarea name="${stageDef.key}.avance" rows="2">${escapeHtml(et.avance || "")}</textarea>
+        </label>
+      </div>
+      <p class="edit-stage-hint">Solo fecha real (sin planificada)</p>
+    </section>`;
+  }
 
   return `
     <section class="edit-stage group-${stageDef.group || "default"}" id="edit-stage-${stageDef.key}" data-stage="${stageDef.key}">
@@ -2437,6 +2473,11 @@ function saveReqEditor(reqId, form) {
       responsable: blankToNull(fd.get(`${s.key}.responsable`)) || req.etapas[s.key].responsable,
       avance: blankToNull(fd.get(`${s.key}.avance`)) || "",
     };
+    // Aprobación y Pruebas completas: nunca guardar fechas plan
+    if (s.clientWait) {
+      patch.planInicio = null;
+      patch.planFin = null;
+    }
     Object.assign(req.etapas[s.key], patch);
     stageEdits[key][s.key] = { ...patch };
   });
