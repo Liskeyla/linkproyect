@@ -110,6 +110,8 @@ body {
 }
 
 body.is-readonly .detail-toolbar #btnAddReq,
+body.is-readonly .detail-toolbar #btnImportExcel,
+body.is-readonly .detail-toolbar #btnDownloadExcel,
 body.is-readonly #btnResetData,
 body.is-readonly #btnGoDetalle {
   opacity: 0.55;

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=20260804d" />
+  <link rel="stylesheet" href="styles.css?v=20260804e" />
 </head>
 <body>
   <div class="app">
@@ -137,6 +137,9 @@
             <input type="search" id="filterSearch" placeholder="Buscar por nombre…" autocomplete="off" />
           </label>
           <button type="button" class="btn ghost" id="btnClearFilters" title="Quitar filtros">Limpiar</button>
+          <button type="button" class="btn ghost" id="btnDownloadExcel" title="Descargar plantilla Excel para carga masiva">Plantilla Excel</button>
+          <button type="button" class="btn ghost" id="btnImportExcel" title="Subir Excel con requerimientos">Subir Excel</button>
+          <input type="file" id="inputImportExcel" accept=".xlsx,.xls,.csv" hidden />
           <button type="button" class="btn primary" id="btnAddReq" title="Agregar una nueva fila de requerimiento">+ Agregar</button>
         </div>
       </div>
@@ -217,7 +220,7 @@
         <div class="ux-guide-item"><span class="ux-ico">1</span> Filtra o busca</div>
         <div class="ux-guide-item"><span class="ux-ico">2</span> Clic en el nombre para editar</div>
         <div class="ux-guide-item"><span class="ux-ico">3</span> Arrastra la fila para reordenar</div>
-        <div class="ux-guide-item"><span class="ux-ico">4</span> Guarda fechas en la tarjeta</div>
+        <div class="ux-guide-item"><span class="ux-ico">4</span> Guarda fechas · o usa Plantilla Excel</div>
         <div class="ux-legend">
           <span class="leg proyectos">Proyectos</span>
           <span class="leg cliente">Cliente</span>
@@ -384,7 +387,8 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=20260804d"></script>
-  <script src="auth-bridge.js?v=20260804d"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="app.js?v=20260804e"></script>
+  <script src="auth-bridge.js?v=20260804e"></script>
 </body>
 </html>

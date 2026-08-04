@@ -2177,6 +2177,490 @@ function clearDetailFilters() {
 
 document.getElementById("btnClearFilters")?.addEventListener("click", clearDetailFilters);
 
+/* ——— Excel: plantilla + carga masiva ——— */
+const EXCEL_HEADERS = [
+  "nombre",
+  "area",
+  "estado",
+  "aplica",
+  "inicio",
+  "fin",
+  "clasificacion",
+];
+
+const EXCEL_STAGE_SUFFIXES = ["plan_inicio", "plan_fin", "real_inicio", "real_fin"];
+
+function excelStageHeaders() {
+  const cols = [];
+  BASE_STAGES.forEach((s) => {
+    EXCEL_STAGE_SUFFIXES.forEach((suf) => cols.push(`${s.key}_${suf}`));
+  });
+  return cols;
+}
+
+function excelAllHeaders() {
+  return [...EXCEL_HEADERS, ...excelStageHeaders()];
+}
+
+function ensureXlsx() {
+  if (typeof XLSX === "undefined") {
+    showToast("No se pudo cargar la librería Excel. Revisa la conexión e inténtalo de nuevo.", "warn");
+    return false;
+  }
+  return true;
+}
+
+function excelCellToIso(value) {
+  if (value == null || value === "") return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return toIso(value);
+  }
+  if (typeof value === "number" && typeof XLSX !== "undefined" && XLSX.SSF?.parse_date_code) {
+    const d = XLSX.SSF.parse_date_code(value);
+    if (d) {
+      const dt = new Date(Date.UTC(d.y, d.m - 1, d.d));
+      return toIso(dt);
+    }
+  }
+  const raw = String(value).trim();
+  if (!raw) return null;
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  // DD/MM/YYYY or DD-MM-YYYY
+  const m = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  if (m) {
+    const day = Number(m[1]);
+    const month = Number(m[2]);
+    const year = Number(m[3]);
+    const dt = new Date(year, month - 1, day);
+    if (!Number.isNaN(dt.getTime())) return toIso(dt);
+  }
+  const parsed = parseDate(raw);
+  return parsed ? toIso(parsed) : null;
+}
+
+function normalizeAplica(value) {
+  const n = normName(value);
+  if (!n || n.includes("ambos") || (n.includes("documento") && n.includes("desarroll"))) return "ambos";
+  if (n.includes("desarroll") || n === "dev") return "desarrollo";
+  if (n.includes("documento") || n.includes("doc")) return "documento";
+  return "ambos";
+}
+
+function normalizeEstado(value) {
+  const n = normName(value);
+  if (!n) return "Pendiente";
+  if (n.includes("planific")) return "Planificar";
+  if (n.includes("proceso")) return "En Proceso";
+  if (n.includes("enviad")) return "Enviado";
+  if (n.includes("listo")) return "Listo";
+  if (n.includes("detenid")) return "Detenido";
+  if (n.includes("pendient")) return "Pendiente";
+  return String(value).trim() || "Pendiente";
+}
+
+/** diseno | desarrollo | qa | produccion */
+function normalizeClasificacion(value) {
+  const n = normName(value);
+  if (!n) return "diseno";
+  if (n.includes("produc") || n.includes("listo")) return "produccion";
+  if (n.includes("prueba") || n.includes("qa")) return "qa";
+  if (n.includes("desarroll") || n === "it" || n.includes("dev")) return "desarrollo";
+  return "diseno";
+}
+
+function makeStageEditPatch(planInicio, planFin, realInicio, realFin, stageKey, note) {
+  return {
+    planInicio: planInicio || null,
+    planFin: planFin || null,
+    realInicio: realInicio || null,
+    realFin: realFin || null,
+    responsable: responsableEtapa(stageKey),
+    avance: note || "",
+  };
+}
+
+function rowHasExplicitStageDates(row) {
+  return BASE_STAGES.some((s) =>
+    EXCEL_STAGE_SUFFIXES.some((suf) => {
+      const v = row[`${s.key}_${suf}`];
+      return v != null && String(v).trim() !== "";
+    })
+  );
+}
+
+function buildStageEditsFromExplicit(row) {
+  const edits = {};
+  BASE_STAGES.forEach((s) => {
+    const planInicio = excelCellToIso(row[`${s.key}_plan_inicio`]);
+    const planFin = excelCellToIso(row[`${s.key}_plan_fin`]);
+    const realInicio = excelCellToIso(row[`${s.key}_real_inicio`]);
+    const realFin = excelCellToIso(row[`${s.key}_real_fin`]);
+    if (!planInicio && !planFin && !realInicio && !realFin) return;
+    edits[s.key] = makeStageEditPatch(
+      planInicio,
+      planFin || planInicio,
+      realInicio,
+      realFin,
+      s.key,
+      `Importado Excel · ${s.label}`
+    );
+  });
+  return edits;
+}
+
+/**
+ * Arma fechas por clasificación:
+ * - Diseño → plan en Lev/Proto/Doc
+ * - Desarrollo IT → etapas de Diseño cerradas + plan en Diseño visual/Desarrollo
+ * - Pruebas QA → anteriores cerradas + plan en QA
+ * - Producción → todas las etapas con fin real (cae en Listos)
+ */
+function buildStageEditsFromClasificacion(row) {
+  const inicio = excelCellToIso(row.inicio) || todayIso();
+  const fin = excelCellToIso(row.fin) || inicio;
+  const bucket = normalizeClasificacion(row.clasificacion);
+  const estado = normalizeEstado(row.estado);
+  const currentDone = estado === "Listo" || estado === "Enviado";
+  const edits = {};
+
+  const groups = [
+    { key: "diseno", stageKeys: ["levantamiento", "prototipado", "documento"] },
+    { key: "desarrollo", stageKeys: ["disenoVisual", "desarrollo"] },
+    { key: "qa", stageKeys: ["qa", "procesos", "pruebasCompletas"] },
+    { key: "produccion", stageKeys: ["produccion"] },
+  ];
+  const targetIdx = groups.findIndex((g) => g.key === bucket);
+
+  if (bucket === "produccion") {
+    BASE_STAGES.forEach((s) => {
+      edits[s.key] = makeStageEditPatch(
+        inicio,
+        fin,
+        inicio,
+        fin,
+        s.key,
+        `Importado Excel · ${s.label} · Listo en producción`
+      );
+    });
+    return edits;
+  }
+
+  groups.forEach((g, idx) => {
+    g.stageKeys.forEach((key) => {
+      const label = BASE_STAGES.find((s) => s.key === key)?.label || key;
+      if (idx < targetIdx) {
+        edits[key] = makeStageEditPatch(
+          inicio,
+          fin,
+          inicio,
+          fin,
+          key,
+          `Importado Excel · ${label} · cerrado`
+        );
+      } else if (idx === targetIdx) {
+        edits[key] = makeStageEditPatch(
+          inicio,
+          fin,
+          currentDone ? inicio : null,
+          currentDone ? fin : null,
+          key,
+          `Importado Excel · ${label} · ${g.key}`
+        );
+      }
+    });
+  });
+
+  return edits;
+}
+
+function normalizeImportHeader(h) {
+  return String(h || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "")
+    .trim();
+}
+
+const IMPORT_HEADER_ALIASES = {
+  nombre: ["nombre", "requerimiento", "req", "titulo", "name"],
+  area: ["area", "área"],
+  estado: ["estado", "status"],
+  aplica: ["aplica", "aplica_a", "fuente"],
+  inicio: ["inicio", "fecha_inicio", "doc_inicio", "start"],
+  fin: ["fin", "fecha_fin", "doc_fin", "end"],
+  clasificacion: [
+    "clasificacion",
+    "clasificación",
+    "etapa",
+    "etapa_actual",
+    "fase",
+    "bucket",
+    "panorama",
+  ],
+};
+
+function mapImportHeaders(rawHeaders) {
+  const map = {};
+  rawHeaders.forEach((h, idx) => {
+    const norm = normalizeImportHeader(h);
+    if (!norm) return;
+    for (const [field, aliases] of Object.entries(IMPORT_HEADER_ALIASES)) {
+      if (aliases.some((a) => normalizeImportHeader(a) === norm)) {
+        map[field] = idx;
+        return;
+      }
+    }
+    // stage columns already normalized as levantamiento_plan_inicio etc.
+    if (BASE_STAGES.some((s) => EXCEL_STAGE_SUFFIXES.some((suf) => norm === `${s.key}_${suf}`))) {
+      map[norm] = idx;
+    }
+  });
+  return map;
+}
+
+function upsertFuenteList(list, payload) {
+  const existing = list.find((r) => namesMatch(r.nombre, payload.nombre));
+  if (existing) {
+    Object.assign(existing, payload);
+    return "updated";
+  }
+  list.push({ ...payload });
+  return "added";
+}
+
+function downloadExcelTemplate() {
+  if (!ensureXlsx()) return;
+  if (typeof window.__linkprojectCanWrite === "function" && !window.__linkprojectCanWrite()) {
+    showToast("No tienes permiso para descargar la plantilla de carga", "warn");
+    return;
+  }
+
+  const headers = excelAllHeaders();
+  const exampleCurso = {
+    nombre: "Ejemplo — Portal de despacho",
+    area: "Operaciones",
+    estado: "En Proceso",
+    aplica: "ambos",
+    inicio: todayIso(),
+    fin: todayIso(),
+    clasificacion: "Diseño",
+  };
+  const exampleProd = {
+    nombre: "Ejemplo — Reporte ya en producción",
+    area: "Reportería",
+    estado: "Listo",
+    aplica: "ambos",
+    inicio: todayIso(),
+    fin: todayIso(),
+    clasificacion: "Producción",
+  };
+
+  const toRow = (obj) => headers.map((h) => obj[h] ?? "");
+
+  const wb = XLSX.utils.book_new();
+
+  const instrucciones = [
+    ["LinkProject — Plantilla de carga masiva de requerimientos"],
+    [""],
+    ["1. Completa la hoja Requerimientos (una fila = un requerimiento)."],
+    ["2. Campos obligatorios: nombre, area, inicio, fin."],
+    ["3. clasificacion define en qué columna del Panorama cae y si va a Listos:"],
+    ["   - Diseño → Levantamiento / Prototipado / Documento funcional"],
+    ["   - Desarrollo IT → Diseño visual / Desarrollo (etapas previas cerradas)"],
+    ["   - Pruebas QA → QA / Pruebas usuario / Pruebas completas"],
+    ["   - Producción → todas las etapas con fin real → pestaña Listos en producción"],
+    ["4. aplica: ambos | documento | desarrollo"],
+    ["5. estado: Pendiente | Planificar | En Proceso | Enviado | Listo | Detenido"],
+    ["6. Opcional: columnas por etapa (*_plan_inicio, *_plan_fin, *_real_inicio, *_real_fin)."],
+    ["   Si las llenas, tienen prioridad sobre clasificacion."],
+    ["7. Sube el archivo con el botón Subir Excel en Detalle."],
+    ["8. También puedes seguir agregando requerimientos uno a uno con + Agregar."],
+    [""],
+    ["Fechas: usa formato YYYY-MM-DD o DD/MM/YYYY."],
+  ];
+  const wsInfo = XLSX.utils.aoa_to_sheet(instrucciones);
+  wsInfo["!cols"] = [{ wch: 100 }];
+  XLSX.utils.book_append_sheet(wb, wsInfo, "Instrucciones");
+
+  const wsData = XLSX.utils.aoa_to_sheet([headers, toRow(exampleCurso), toRow(exampleProd)]);
+  wsData["!cols"] = headers.map((h) => ({ wch: Math.min(28, Math.max(12, h.length + 2)) }));
+  XLSX.utils.book_append_sheet(wb, wsData, "Requerimientos");
+
+  const catalogo = [
+    ["Campo", "Valores válidos"],
+    ["clasificacion", "Diseño | Desarrollo IT | Pruebas QA | Producción"],
+    ["estado", "Pendiente | Planificar | En Proceso | Enviado | Listo | Detenido"],
+    ["aplica", "ambos | documento | desarrollo"],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(catalogo), "Catalogo");
+
+  XLSX.writeFile(wb, `LinkProject_plantilla_requerimientos_${todayIso()}.xlsx`);
+  showToast("Plantilla Excel descargada", "ok");
+}
+
+function parseExcelWorkbook(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = new Uint8Array(ev.target.result);
+        const wb = XLSX.read(data, { type: "array", cellDates: true });
+        const sheetName =
+          wb.SheetNames.find((n) => /requer/i.test(n)) ||
+          wb.SheetNames.find((n) => !/instruc|catalog/i.test(n)) ||
+          wb.SheetNames[0];
+        const sheet = wb.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true });
+        resolve(rows);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error("No se pudo leer el archivo"));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+async function importRequirementsFromExcel(file) {
+  if (!ensureXlsx()) return;
+  if (typeof window.__linkprojectCanWrite === "function" && !window.__linkprojectCanWrite()) {
+    showToast("No tienes permiso para importar", "warn");
+    return;
+  }
+
+  let matrix;
+  try {
+    matrix = await parseExcelWorkbook(file);
+  } catch (err) {
+    console.error(err);
+    showToast("Archivo Excel inválido", "warn");
+    return;
+  }
+
+  if (!matrix?.length) {
+    showToast("El Excel está vacío", "warn");
+    return;
+  }
+
+  // Skip title rows until we find a header with "nombre"
+  let headerIdx = 0;
+  for (let i = 0; i < Math.min(matrix.length, 10); i += 1) {
+    const mapped = mapImportHeaders(matrix[i]);
+    if (mapped.nombre != null) {
+      headerIdx = i;
+      break;
+    }
+  }
+
+  const headerMap = mapImportHeaders(matrix[headerIdx]);
+  if (headerMap.nombre == null) {
+    showToast('Falta la columna "nombre" en la plantilla', "warn");
+    return;
+  }
+
+  const get = (row, field) => {
+    const idx = headerMap[field];
+    if (idx == null) return "";
+    return row[idx];
+  };
+
+  let added = 0;
+  let updated = 0;
+  let skipped = 0;
+  let listos = 0;
+
+  for (let i = headerIdx + 1; i < matrix.length; i += 1) {
+    const raw = matrix[i];
+    if (!raw || !raw.length) continue;
+
+    const nombre = String(get(raw, "nombre") || "").trim();
+    const area = String(get(raw, "area") || "").trim();
+    if (!nombre) {
+      skipped += 1;
+      continue;
+    }
+    if (!area) {
+      skipped += 1;
+      continue;
+    }
+
+    const inicio = excelCellToIso(get(raw, "inicio")) || todayIso();
+    const fin = excelCellToIso(get(raw, "fin")) || inicio;
+    const estado = normalizeEstado(get(raw, "estado"));
+    const aplica = normalizeAplica(get(raw, "aplica"));
+    const clasificacion = String(get(raw, "clasificacion") || "").trim();
+
+    const rowObj = { nombre, area, estado, aplica, inicio, fin, clasificacion };
+    // Attach explicit stage cells
+    Object.keys(headerMap).forEach((field) => {
+      if (EXCEL_HEADERS.includes(field)) return;
+      rowObj[field] = get(raw, field);
+    });
+
+    const payload = { nombre, area, inicio, fin, estado };
+    if (aplica === "documento" || aplica === "ambos") {
+      const r = upsertFuenteList(REQ_FUENTE, payload);
+      if (r === "added") added += 1;
+      else updated += 1;
+    }
+    if (aplica === "desarrollo" || aplica === "ambos") {
+      const r = upsertFuenteList(DEV_FUENTE, payload);
+      // only count once for dual apply
+      if (aplica === "desarrollo") {
+        if (r === "added") added += 1;
+        else updated += 1;
+      }
+    }
+
+    const edits = rowHasExplicitStageDates(rowObj)
+      ? buildStageEditsFromExplicit(rowObj)
+      : buildStageEditsFromClasificacion(rowObj);
+
+    if (Object.keys(edits).length) {
+      stageEdits[normName(nombre)] = {
+        ...(stageEdits[normName(nombre)] || {}),
+        ...edits,
+      };
+    }
+
+    if (normalizeClasificacion(clasificacion) === "produccion") listos += 1;
+  }
+
+  saveFuentes();
+  saveStageEdits();
+  refreshAppFromData();
+  if (typeof window.__linkprojectPersistNow === "function") window.__linkprojectPersistNow();
+
+  const wentListos = requerimientos.filter((r) => isReqListo(r)).length;
+  setDetailBucket(wentListos && listos ? "listos" : "curso");
+  showToast(
+    `Importación: ${added} nuevos, ${updated} actualizados` +
+      (skipped ? `, ${skipped} omitidos` : "") +
+      (wentListos ? ` · ${wentListos} en producción/Listos` : ""),
+    added + updated > 0 ? "ok" : "warn"
+  );
+}
+
+document.getElementById("btnDownloadExcel")?.addEventListener("click", downloadExcelTemplate);
+
+document.getElementById("btnImportExcel")?.addEventListener("click", () => {
+  if (typeof window.__linkprojectCanWrite === "function" && !window.__linkprojectCanWrite()) {
+    showToast("No tienes permiso para importar", "warn");
+    return;
+  }
+  document.getElementById("inputImportExcel")?.click();
+});
+
+document.getElementById("inputImportExcel")?.addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = "";
+  if (!file) return;
+  await importRequirementsFromExcel(file);
+});
+
 function showToast(message, tone = "ok") {
   const host = document.getElementById("toastHost");
   if (!host || !message) return;
