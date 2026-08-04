@@ -118,6 +118,18 @@
       nameEl.textContent = `${currentUser.name || currentUser.email} · ${roleLabel}`;
     }
 
+    const projectEl = document.getElementById("projectNameLabel");
+    if (projectEl && currentUser) {
+      const email = String(currentUser.email || "").toLowerCase();
+      const name = String(currentUser.name || "").toLowerCase();
+      // María (editor) → TMS 2.0; resto mantiene DMS Operaciones
+      if (email === "mpluas@awenandwis.com" || name.includes("maría") || name.includes("maria")) {
+        projectEl.textContent = "TMS 2.0";
+      } else {
+        projectEl.textContent = "DMS Operaciones";
+      }
+    }
+
     const data = json.data || {};
 
     // Evita que caché local vieja (catálogo incrustado) contamine el tablero
