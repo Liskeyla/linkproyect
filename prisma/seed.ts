@@ -14,6 +14,7 @@ const EMPTY_PAYLOAD = JSON.stringify({
   userOwnedData: true,
   blankBoard: true,
   detailDriven: true,
+  boardEpoch: 2,
 });
 
 const users = [

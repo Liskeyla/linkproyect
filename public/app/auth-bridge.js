@@ -56,6 +56,7 @@
       userOwnedData: true,
       blankBoard: true,
       detailDriven: true,
+      boardEpoch: 2,
     };
   }
 
@@ -118,6 +119,11 @@
     }
 
     const data = json.data || {};
+
+    // Evita que caché local vieja (catálogo incrustado) contamine el tablero
+    if (typeof clearAllLinkprojectLocalCache === "function") {
+      clearAllLinkprojectLocalCache();
+    }
 
     if (typeof window.__linkprojectApplyRemote === "function") {
       window.__linkprojectApplyRemote(data, { userId: currentUser?.id || currentUser?.email });

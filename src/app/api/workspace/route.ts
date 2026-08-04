@@ -15,6 +15,7 @@ const EMPTY_PAYLOAD = {
   blankBoard: true,
   detailDriven: true,
   designSourceSanitized: true,
+  boardEpoch: 2,
 };
 
 function workspaceIdFor(userId: string) {
@@ -51,7 +52,7 @@ async function getSessionUser() {
 
 /**
  * Misma lógica para todos: workspace propio, vacío al crear.
- * Si falta detailDriven, limpia una vez el catálogo legado (datos que vinieron del código).
+ * Si falta detailDriven O aún hay payload del catálogo legado sin dueño limpio, vacía.
  */
 async function getOrCreateUserWorkspace(user: {
   id: string;
@@ -71,20 +72,27 @@ async function getOrCreateUserWorkspace(user: {
     return { workspace };
   }
 
-  // Leer flags del JSON crudo (parsePayload rellena defaults y ocultaría la migración)
-  let rawFlags: { detailDriven?: boolean } = {};
+  // Leer JSON crudo (parsePayload rellena defaults y ocultaría la migración)
+  let raw: {
+    detailDriven?: boolean;
+    boardEpoch?: number;
+    doc?: unknown[];
+    dev?: unknown[];
+  } = {};
   try {
-    rawFlags = JSON.parse(workspace.payload) || {};
+    raw = JSON.parse(workspace.payload) || {};
   } catch {
-    rawFlags = {};
+    raw = {};
   }
 
-  // Una sola vez: elimina requerimientos que vinieron del catálogo incrustado
-  if (!rawFlags.detailDriven) {
+  const BOARD_EPOCH = 2; // subir para forzar un wipe global de catálogo legado
+  const needsWipe = !raw.detailDriven || raw.boardEpoch !== BOARD_EPOCH;
+
+  if (needsWipe) {
     workspace = await prisma.workspace.update({
       where: { id },
       data: {
-        payload: JSON.stringify(EMPTY_PAYLOAD),
+        payload: JSON.stringify({ ...EMPTY_PAYLOAD, boardEpoch: BOARD_EPOCH }),
         updatedBy: user.email || null,
       },
     });
@@ -103,7 +111,7 @@ export async function GET() {
   const data = parsePayload(workspace.payload);
 
   return NextResponse.json({
-    data: { ...data, userOwnedData: true, blankBoard: true, detailDriven: true },
+    data: { ...data, userOwnedData: true, blankBoard: true, detailDriven: true, boardEpoch: 2 },
     updatedAt: workspace.updatedAt,
     updatedBy: workspace.updatedBy,
     user: {
@@ -161,6 +169,7 @@ export async function PUT(req: Request) {
       userOwnedData: true,
       blankBoard: true,
       detailDriven: true,
+      boardEpoch: 2,
     };
   }
 
