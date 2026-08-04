@@ -105,23 +105,6 @@ function removeCustomStageColumn(key) {
 
 const AREAS = []; // se llena desde los requerimientos reales
 
-/** Sugerencias fijas de área (también se pueden escribir otras) */
-const DEFAULT_AREA_SUGGESTIONS = [
-  "Operaciones",
-  "Liquidaciones",
-  "Reportería",
-  "Recepción y Despacho",
-  "R&D (Recepción y Despacho)",
-  "Reparaciones Reefer",
-  "Reefer (Máquina)",
-  "Estructura (Box)",
-  "Inspección y Despacho",
-  "Reparaciones Box",
-  "Facturación",
-  "Administración de Patio",
-  "Almacén",
-];
-
 /**
  * Cumplimiento vs fecha fin planificada:
  * - Si hay fin real: 100% si realFin <= planFin; si se atrasó, baja proporcional.
@@ -326,216 +309,6 @@ function namesMatch(a, b) {
   return hits >= Math.min(3, tb.length) && hits / tb.length >= 0.6;
 }
 
-/**
- * Fuente por defecto: planificación de documentos funcionales (orden = prioridad).
- * estado: Enviado/Listo → fechas reales = planificadas en etapas tempranas.
- */
-const DEFAULT_REQ_FUENTE = [];
-
-/**
- * Fuente por defecto: etapa Desarrollo (orden = prioridad de desarrollo).
- * Listo → real = planificado. En Proceso / Detenido / Pendiente según reglas.
- */
-const DEFAULT_DEV_FUENTE = [];
-
-/**
- * Requerimientos ya en producción (Listo).
- * plan/real = fechas de producción
- * docInicio/docFin = documento funcional (se reparte en Levantamiento / Prototipado / Doc. funcional)
- */
-const DEFAULT_PROD_LISTOS = [];
-
-const EARLY_STAGE_KEYS = ["levantamiento", "prototipado", "documento"];
-
-/**
- * Avance real (Liskeyla):
- * 1) Documento funcional terminado (Enviado) → fechas en Lev / Proto / Doc (plan + real)
- * 2) Fechas de QA
- * 3) Fechas de Desarrollo
- */
-const DOC_FUNCIONAL_DONE = [];
-
-const QA_STAGE_DATES = [];
-
-const DEV_STAGE_DATES = [];
-
-/** Desarrollo Listo: repartir entre Diseño visual + Desarrollo (plan = real) */
-const DEV_LISTO_DATES = [];
-
-function splitRangeIntoParts(inicio, fin, parts) {
-  let a = parseDate(inicio);
-  let b = parseDate(fin);
-  if (!a || !b) return null;
-  if (b < a) [a, b] = [b, a];
-  const startIso = toIso(a);
-  const total = daysBetween(a, b);
-  const n = Math.max(1, parts);
-  if (total <= 0) {
-    return Array.from({ length: n }, () => ({ inicio: startIso, fin: startIso }));
-  }
-  const out = [];
-  for (let i = 0; i < n; i++) {
-    const from = Math.round((total * i) / n);
-    const to = Math.round((total * (i + 1)) / n);
-    out.push({
-      inicio: addDaysIso(startIso, from),
-      fin: addDaysIso(startIso, to),
-    });
-  }
-  return out;
-}
-
-/** Reparte el tiempo de desarrollo Listo en Diseño visual + Desarrollo (plan = real) */
-function applyDevListoSplit(req, inicio, fin) {
-  const segs = splitRangeIntoParts(inicio, fin, 2);
-  if (!segs) return;
-  const keys = ["disenoVisual", "desarrollo"];
-  const labels = ["Diseño visual", "Desarrollo"];
-  keys.forEach((key, i) => {
-    const seg = segs[i];
-    const resp = req.etapas?.[key]?.responsable || responsableEtapa(key);
-    req.etapas[key] = stage(
-      seg.inicio,
-      seg.fin,
-      seg.inicio,
-      seg.fin,
-      resp,
-      `${labels[i]} · Listo (plan = real)`
-    );
-  });
-  req.estadoDev = "Listo";
-  req.estadoFuente = "Listo";
-}
-
-function findReqByName(list, nombre) {
-  return list.find((r) => namesMatch(r.nombre, nombre)) || null;
-}
-
-function datesFromEstado(inicio, fin, estado) {
-  let a = inicio;
-  let b = fin || inicio;
-  if (parseDate(b) && parseDate(a) && parseDate(b) < parseDate(a)) [a, b] = [b, a];
-  const s = String(estado || "").toLowerCase();
-  let realInicio = null;
-  let realFin = null;
-  if (s === "listo" || s === "enviado") {
-    realInicio = a;
-    realFin = b;
-  } else if (s.includes("proceso") || s.includes("detenid")) {
-    realInicio = a;
-    realFin = null;
-  }
-  return { planInicio: a, planFin: b, realInicio, realFin };
-}
-
-function patchStageDates(req, stageKey, inicio, fin, estado, note) {
-  if (!req.etapas?.[stageKey]) {
-    req.etapas[stageKey] = emptyStage(responsableEtapa(stageKey), note || "");
-  }
-  const d = datesFromEstado(inicio, fin, estado);
-  const resp = req.etapas[stageKey].responsable || responsableEtapa(stageKey);
-  req.etapas[stageKey] = stage(d.planInicio, d.planFin, d.realInicio, d.realFin, resp, note || req.etapas[stageKey].avance || "");
-}
-
-function ensureReqFromProgress(list, item, estadoDoc) {
-  let req = findReqByName(list, item.nombre);
-  if (req) {
-    if (item.area) req.area = item.area;
-    return req;
-  }
-  req = assembleRequirement({
-    nombre: item.nombre,
-    area: item.area,
-    early: emptyEarlyStages(),
-    desarrollo: null,
-    estadoDoc: estadoDoc || "Pendiente",
-    estadoDev: null,
-    index: list.length,
-    total: list.length + 1,
-  });
-  list.push(req);
-  return req;
-}
-
-/** Aplica documento terminado + QA + Desarrollo según las listas de seguimiento */
-function applyKnownStageProgress(_list) {
-}
-
-function applyDocDatesToEarlyStages(req, docInicio, docFin) {
-  let inicio = docInicio || docFin;
-  let fin = docFin || docInicio;
-  if (!inicio || !fin) return;
-  if (parseDate(fin) < parseDate(inicio)) [inicio, fin] = [fin, inicio];
-
-  const segs = splitPlanningRange(inicio, fin);
-  if (!segs) return;
-
-  const labels = ["Levantamiento", "Prototipado", "Documento funcional"];
-  EARLY_STAGE_KEYS.forEach((key, i) => {
-    const seg = segs[i];
-    const resp = req.etapas?.[key]?.responsable || responsableEtapa(key);
-    req.etapas[key] = stage(
-      seg.inicio,
-      seg.fin,
-      seg.inicio,
-      seg.fin,
-      resp,
-      `${labels[i]} · Listo (documento funcional)`
-    );
-  });
-}
-
-function markRequirementListoProduccion(req, planDate, realDate, docInicio, docFin) {
-  const plan = planDate || realDate;
-  const real = realDate || planDate;
-  BASE_STAGES.forEach((s) => {
-    if (EARLY_STAGE_KEYS.includes(s.key)) return;
-    const resp = req.etapas?.[s.key]?.responsable || responsableEtapa(s.key);
-    req.etapas[s.key] = stage(
-      plan,
-      real,
-      plan,
-      real,
-      resp,
-      s.production ? `Producción · Listo` : `Completado · Listo`
-    );
-  });
-
-  applyDocDatesToEarlyStages(req, docInicio || plan, docFin || real);
-
-  customStages.forEach((s) => {
-    if (!req.etapas[s.key]) {
-      req.etapas[s.key] = emptyStage(responsableEtapa(s.key), "Columna opcional");
-    }
-  });
-  req.estadoDoc = "Listo";
-  req.estadoDev = "Listo";
-  req.estadoFuente = "Listo";
-  if (!req.decision || req.decision === "pendiente") req.decision = "aprobado";
-  if (!req.comentario) req.comentario = "Cerrado en producción";
-  return req;
-}
-
-function buildListoProduccionRequirement(item, index, total) {
-  const req = {
-    id: index + 1,
-    nombre: item.nombre,
-    prioridad: prioridadByOrden(index, total),
-    area: item.area,
-    estadoFuente: "Listo",
-    estadoDoc: "Listo",
-    estadoDev: "Listo",
-    dificultad: "media",
-    decision: "aprobado",
-    comentario: "Cerrado en producción",
-    etapas: {},
-  };
-  return markRequirementListoProduccion(req, item.plan, item.real, item.docInicio, item.docFin);
-}
-
-function mergeProdListosInto(list) {
-  return list;
-}
 function buildEarlyStages(row) {
   // Solo Diseño: reparte inicio→fin del requerimiento en 3 columnas como fechas PLANIFICADAS.
   // Las demás etapas quedan vacías (sin estimación automática).
@@ -592,320 +365,24 @@ function rangeDays(inicio, fin) {
   return Math.max(1, Math.abs(daysBetween(a, b)) + 1);
 }
 
-/** Estima dificultad (baja/media/alta) según duración, área y complejidad del nombre */
+/** Estima dificultad (baja/media/alta) según duración planificada */
 function estimateDifficulty(nombre, area, docDays, devDays) {
   let score = 2;
-  const n = normName(nombre);
   const span = Math.max(docDays || 0, devDays || 0);
 
   if (span > 0 && span <= 7) score -= 1;
   else if (span > 21 && span <= 45) score += 1;
   else if (span > 45) score += 2;
 
-  const hard = [
-    "sap",
-    "integr",
-    "rediseno",
-    "movil",
-    "servidor",
-    "layout",
-    "falso embarque",
-    "validacion",
-    "siete",
-    "complementario",
-    "portacontenedor",
-    "ubicacion",
-    "replica",
-    "booking",
-  ];
-  const easy = ["anexo", "marca de agua", "codigos de partes", "autoaprobacion"];
-  hard.forEach((k) => {
-    if (n.includes(k)) score += 1;
-  });
-  easy.forEach((k) => {
-    if (n.includes(k)) score -= 1;
-  });
-
-  if (/reefer|liquidaciones|estructura/i.test(area)) score += 0.5;
-  if (/reporter/i.test(area) && span <= 14) score -= 0.5;
-
   score = Math.max(1, Math.min(5, Math.round(score * 10) / 10));
   const level = score <= 2 ? "baja" : score <= 3.5 ? "media" : "alta";
-  const days = {
-    baja: { aprobacion: 5, disenoVisual: 5, desarrollo: 8, qa: 5, procesos: 4, pruebasCompletas: 10, produccion: 3 },
-    media: { aprobacion: 10, disenoVisual: 8, desarrollo: 15, qa: 10, procesos: 7, pruebasCompletas: 14, produccion: 5 },
-    alta: { aprobacion: 18, disenoVisual: 14, desarrollo: 28, qa: 18, procesos: 12, pruebasCompletas: 21, produccion: 8 },
-  }[level];
-
-  return { level, score, days };
-}
-
-function planWindowFrom(startIso, durationDays) {
-  const inicio = startIso;
-  const fin = addDaysIso(startIso, Math.max(0, durationDays - 1));
-  return { inicio, fin };
-}
-
-function nextDay(iso) {
-  return addDaysIso(iso, 1);
+  return { level, score };
 }
 
 function todayIso() {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return toIso(d);
-}
-
-/**
- * Completa Aprobación, Diseño visual, Desarrollo (si falta), QA, Procesos y Producción.
- * Cadena: Doc funcional → Aprobación (cliente) → Diseño visual → Desarrollo → QA → Procesos → Producción.
- */
-function estimateRemainingStages({ nombre, area, early, desarrollo, estadoDoc, estadoDev, difficulty }) {
-  const hoy = todayIso();
-  const stopped = estadoDev === "Detenido" || estadoDoc === "Detenido";
-  const pendingUp =
-    estadoDev === "Pendiente" ||
-    estadoDev === "Planificar" ||
-    (!estadoDev && (estadoDoc === "Pendiente" || estadoDoc === "Planificar"));
-  const inProcess = estadoDev === "En Proceso";
-  const docDone = estadoDoc === "Listo" || estadoDoc === "Enviado";
-
-  const emptyTrail = () => ({
-    aprobacion: emptyStage(responsableEtapa("aprobacion"), "Sin base para estimar"),
-    disenoVisual: emptyStage(responsableEtapa("disenoVisual"), "Sin base para estimar"),
-    desarrollo: desarrollo || emptyStage(responsableEtapa("desarrollo"), "Sin base para estimar"),
-    qa: emptyStage(responsableEtapa("qa"), "Sin base para estimar"),
-    pruebasCompletas: emptyStage(responsableEtapa("pruebasCompletas"), "Sin base para estimar"),
-    procesos: emptyStage(responsableEtapa("procesos"), "Sin base para estimar"),
-    produccion: emptyStage(responsableEtapa("produccion"), "Sin base para estimar"),
-    difficulty,
-  });
-
-  if (!early.documento?.planFin && !desarrollo?.planFin) return emptyTrail();
-
-  function buildFollow({ label, days, stageKey, after, ready }) {
-    if (!after) {
-      return {
-        stage: emptyStage(responsableEtapa(stageKey), "Sin base para estimar"),
-        fin: null,
-      };
-    }
-    const start = nextDay(after);
-    const win = planWindowFrom(start, days);
-    const responsable = responsableEtapa(stageKey);
-    let realInicio = null;
-    let realFin = null;
-    let avance = `${label} estimado — dificultad ${difficulty.level}`;
-
-    if (stopped) {
-      avance = `${label} estimado — en espera (requerimiento detenido)`;
-    } else if (!ready) {
-      avance = `${label} estimado — pendiente de etapa anterior`;
-    } else if (win.fin <= hoy) {
-      realInicio = win.inicio;
-      realFin = win.fin;
-      avance = `${label} estimado ejecutado (${difficulty.level})`;
-    } else if (win.inicio <= hoy) {
-      realInicio = win.inicio;
-      realFin = null;
-      avance = `${label} estimado en curso (${difficulty.level})`;
-    }
-
-    return {
-      stage: stage(win.inicio, win.fin, realInicio, realFin, responsable, avance),
-      fin: win.fin,
-    };
-  }
-
-  let cursor = early.documento?.planFin || null;
-
-  // Aprobación = solo hitos: fecha envío a aprobar + fecha en que se aprobó
-  const aprobacion = (() => {
-    const docFin = early.documento?.realFin || early.documento?.planFin;
-    if (!docFin) {
-      return {
-        stage: emptyStage(responsableEtapa("aprobacion"), "Sin documento para enviar a aprobación"),
-        fin: null,
-      };
-    }
-    const fechaEnvio = docFin;
-    const espera = Math.max(1, difficulty.days.aprobacion);
-    const fechaEsperada = addDaysIso(fechaEnvio, espera - 1);
-    let fechaAprobado = null;
-    let realEnvio = null;
-    let avance = "Pendiente de envío a aprobación del cliente";
-
-    if (estadoDoc === "Listo") {
-      realEnvio = fechaEnvio;
-      fechaAprobado = fechaEsperada <= hoy ? fechaEsperada : fechaEnvio;
-      if (fechaAprobado > hoy) fechaAprobado = hoy;
-      avance = "Enviado y aprobado por el cliente";
-    } else if (estadoDoc === "Enviado") {
-      realEnvio = fechaEnvio;
-      avance =
-        fechaEsperada < hoy
-          ? "Enviado a aprobación — demora del cliente"
-          : "Enviado a aprobación — pendiente de firma";
-    } else if (docDone) {
-      realEnvio = fechaEnvio;
-      avance = "Enviado a aprobación — pendiente de respuesta";
-    }
-
-    return {
-      stage: stage(
-        fechaEnvio,
-        fechaEsperada,
-        realEnvio,
-        fechaAprobado,
-        responsableEtapa("aprobacion"),
-        avance
-      ),
-      fin: fechaAprobado || fechaEsperada,
-    };
-  })();
-  cursor = aprobacion.fin || cursor;
-
-  const disenoVisual = buildFollow({
-    label: "Diseño visual",
-    days: difficulty.days.disenoVisual,
-    stageKey: "disenoVisual",
-    after: cursor,
-    ready: docDone && !stopped && !pendingUp,
-  });
-  cursor = disenoVisual.fin || cursor;
-
-  let desarrolloStage = desarrollo;
-  if (!desarrolloStage?.planFin) {
-    const est = buildFollow({
-      label: "Desarrollo",
-      days: difficulty.days.desarrollo,
-      stageKey: "desarrollo",
-      after: cursor,
-      ready: docDone && !stopped && !pendingUp && !inProcess,
-    });
-    if (inProcess && est.stage.planInicio) {
-      est.stage.realInicio = est.stage.planInicio;
-      est.stage.realFin = null;
-      est.stage.avance = `Desarrollo estimado (${difficulty.level}) — en curso · coord. Erick Valverde`;
-    }
-    desarrolloStage = est.stage;
-    cursor = est.fin || cursor;
-  } else {
-    cursor = desarrolloStage.planFin;
-  }
-
-  const upstreamDone =
-    !stopped &&
-    !pendingUp &&
-    !inProcess &&
-    (estadoDev === "Listo" || !!desarrolloStage.realFin);
-
-  const qa = buildFollow({
-    label: "Etapa QA",
-    days: difficulty.days.qa,
-    stageKey: "qa",
-    after: desarrolloStage.realFin || desarrolloStage.planFin || cursor,
-    ready: upstreamDone,
-  });
-
-  if (estadoDev === "Listo" && /fase qa|ajuste de identificado/i.test(nombre)) {
-    if (qa.stage.planFin && qa.stage.planFin <= hoy) {
-      qa.stage.realInicio = qa.stage.planInicio;
-      qa.stage.realFin = qa.stage.planFin;
-      qa.stage.avance = "QA alineado a cierre de desarrollo (Listo) — Erick Valverde";
-    }
-  }
-
-  const procesos = buildFollow({
-    label: "Pruebas QA Usuario Proyecto",
-    days: difficulty.days.procesos,
-    stageKey: "procesos",
-    after: qa.fin,
-    ready: upstreamDone && !!qa.stage.realFin,
-  });
-
-  /** Cliente planifica pruebas completas tras QA con usuario; puede tomar semanas (como Aprobación). */
-  const pruebasCompletas = (() => {
-    const entrega = procesos.stage.realFin || procesos.stage.planFin || qa.fin;
-    if (!entrega) {
-      return {
-        stage: emptyStage(responsableEtapa("pruebasCompletas"), "Pendiente de QA con usuario"),
-        fin: null,
-      };
-    }
-    const espera = Math.max(1, difficulty.days.pruebasCompletas);
-    const fechaInicio = entrega;
-    const fechaEsperada = addDaysIso(fechaInicio, espera - 1);
-    let realInicio = null;
-    let realFin = null;
-    let avance = "Pendiente de entrega a pruebas completas del cliente";
-
-    if (procesos.stage.realFin) {
-      realInicio = procesos.stage.realFin;
-      avance =
-        fechaEsperada < hoy
-          ? "Pruebas completas — pendientes del cliente (pueden tomar semanas)"
-          : "En pruebas completas del cliente — plazo estimado en semanas";
-    } else if (upstreamDone && qa.stage.realFin) {
-      avance = `Pruebas completas estimadas tras QA usuario — a cargo del cliente (${difficulty.level})`;
-    }
-
-    return {
-      stage: stage(
-        fechaInicio,
-        fechaEsperada,
-        realInicio,
-        realFin,
-        responsableEtapa("pruebasCompletas"),
-        avance
-      ),
-      fin: realFin || fechaEsperada,
-    };
-  })();
-
-  const produccion = buildFollow({
-    label: "Producción",
-    days: difficulty.days.produccion,
-    stageKey: "produccion",
-    after: pruebasCompletas.fin || procesos.fin || qa.fin,
-    ready: upstreamDone && !!pruebasCompletas.stage.realFin,
-  });
-
-  if (!produccion.stage.planFin && (pruebasCompletas.fin || procesos.fin || qa.fin)) {
-    Object.assign(
-      produccion,
-      buildFollow({
-        label: "Producción",
-        days: difficulty.days.produccion,
-        stageKey: "produccion",
-        after: pruebasCompletas.fin || procesos.fin || qa.fin,
-        ready: false,
-      })
-    );
-  }
-  if (!procesos.stage.planFin && qa.fin) {
-    Object.assign(
-      procesos,
-      buildFollow({
-        label: "Pruebas QA Usuario Proyecto",
-        days: difficulty.days.procesos,
-        stageKey: "procesos",
-        after: qa.fin,
-        ready: false,
-      })
-    );
-  }
-
-  return {
-    aprobacion: aprobacion.stage,
-    disenoVisual: disenoVisual.stage,
-    desarrollo: desarrolloStage,
-    qa: qa.stage,
-    procesos: procesos.stage,
-    pruebasCompletas: pruebasCompletas.stage,
-    produccion: produccion.stage,
-    difficulty,
-  };
 }
 
 function assembleRequirement({ nombre, area, early, desarrollo, estadoDoc, estadoDev, index, total }) {
@@ -1027,29 +504,6 @@ function applyStageEdits() {
   });
 }
 
-/** Etapas de Diseño que sí se alimentan desde la fuente del requerimiento */
-const DESIGN_SOURCE_STAGE_KEYS = ["levantamiento", "prototipado", "documento"];
-
-/**
- * Quita del historial las fechas auto-estimadas de etapas posteriores a Diseño,
- * para que solo queden planificadas Levantamiento / Prototipado / Doc. funcional
- * (salvo lo que el usuario vuelva a guardar a mano).
- */
-function sanitizeStageEditsKeepDesignSource(edits) {
-  const out = {};
-  Object.entries(edits || {}).forEach(([reqKey, stages]) => {
-    if (!stages || typeof stages !== "object") return;
-    const filtered = {};
-    DESIGN_SOURCE_STAGE_KEYS.forEach((k) => {
-      if (stages[k] && typeof stages[k] === "object") {
-        filtered[k] = { ...stages[k] };
-      }
-    });
-    if (Object.keys(filtered).length) out[reqKey] = filtered;
-  });
-  return out;
-}
-
 function loadReqOrder() {
   try {
     const raw = localStorage.getItem(REQ_ORDER_KEY);
@@ -1162,11 +616,6 @@ function syncWorkspaceUiForUser() {
   btn.title = "Borra todos los requerimientos guardados en la base de datos";
 }
 
-function shouldIncludeProdCatalog() {
-  // Catálogo en código desactivado: los listos viven en la base del usuario
-  return false;
-}
-
 function upsertReqFuente(item, estado) {
   const inicio = item.inicio || item.docInicio || item.plan || item.fin || item.real;
   const fin = item.fin || item.docFin || item.real || item.plan || inicio;
@@ -1208,14 +657,6 @@ function snapshotStageEditsFromReqs(list) {
   return out;
 }
 
-/**
- * Una sola vez: pasa listas del código → fuentes + stageEdits y marca userOwnedData.
- * Después el usuario edita/borra y todo queda solo en base de datos.
- */
-function materializeLiskeylaBaselineToOwnedData() {
-  window.__linkprojectUserOwnedData = true;
-}
-
 function refreshAppFromData() {
   rebuildRequerimientos();
   fillAreaFilter();
@@ -1237,7 +678,7 @@ function refreshAppFromData() {
 }
 
 function syncAreaSuggestions() {
-  const merged = [...new Set([...DEFAULT_AREA_SUGGESTIONS, ...AREAS].filter(Boolean))].sort((a, b) =>
+  const merged = [...new Set(AREAS.filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, "es", { sensitivity: "base" })
   );
   const list = document.getElementById("areaSuggestions");
@@ -2987,20 +2428,9 @@ function applyDecisionUi(decision) {
   if (strong) strong.textContent = m.text;
 }
 
-function prodListosAsFuenteRows() {
-  return DEFAULT_PROD_LISTOS.map((item) => ({
-    nombre: item.nombre,
-    area: item.area,
-    inicio: item.docInicio || item.plan || item.real,
-    fin: item.docFin || item.real || item.plan,
-    estado: "Listo",
-  }));
-}
-
-window.__linkprojectApplyRemote = function applyRemote(data, options = {}) {
+window.__linkprojectApplyRemote = function applyRemote(data) {
   const payload = data || {};
 
-  window.__linkprojectIncludeProdCatalog = false;
   window.__linkprojectUserOwnedData = true;
   window.__linkprojectDesignSourceSanitized = true;
 

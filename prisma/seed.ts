@@ -12,6 +12,7 @@ const EMPTY_PAYLOAD = JSON.stringify({
   decisionGlobal: null,
   userOwnedData: true,
   blankBoard: true,
+  detailDriven: true,
 });
 
 const users = [

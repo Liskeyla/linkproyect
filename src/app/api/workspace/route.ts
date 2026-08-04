@@ -4,17 +4,17 @@ import { authOptions, canWrite } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 const EMPTY_PAYLOAD = {
-  doc: [],
-  dev: [],
-  stageEdits: {},
-  reqOrder: [],
-  customStages: [],
-  decisionGlobal: null,
+  doc: [] as unknown[],
+  dev: [] as unknown[],
+  stageEdits: {} as Record<string, unknown>,
+  reqOrder: [] as unknown[],
+  customStages: [] as unknown[],
+  decisionGlobal: null as unknown,
   userOwnedData: true,
   blankBoard: true,
+  detailDriven: true,
+  designSourceSanitized: true,
 };
-
-const LISKEYLA_EMAIL = "lmacias@awenandwis.com";
 
 function workspaceIdFor(userId: string) {
   return `user:${userId}`;
@@ -50,7 +50,7 @@ async function getSessionUser() {
 
 /**
  * Misma lógica para todos: workspace propio, vacío al crear.
- * Liskeyla se alinea a vacío una vez (blankBoard) como María.
+ * Si falta detailDriven, limpia una vez el catálogo legado (datos que vinieron del código).
  */
 async function getOrCreateUserWorkspace(user: {
   id: string;
@@ -70,12 +70,16 @@ async function getOrCreateUserWorkspace(user: {
     return { workspace };
   }
 
-  const data = parsePayload(workspace.payload) as typeof EMPTY_PAYLOAD & {
-    blankBoard?: boolean;
-  };
+  // Leer flags del JSON crudo (parsePayload rellena defaults y ocultaría la migración)
+  let rawFlags: { detailDriven?: boolean } = {};
+  try {
+    rawFlags = JSON.parse(workspace.payload) || {};
+  } catch {
+    rawFlags = {};
+  }
 
-  // Una sola vez: limpia el tablero histórico de Liskeyla para igualarlo a María
-  if (user.email === LISKEYLA_EMAIL && !data.blankBoard) {
+  // Una sola vez: elimina requerimientos que vinieron del catálogo incrustado
+  if (!rawFlags.detailDriven) {
     workspace = await prisma.workspace.update({
       where: { id },
       data: {
@@ -98,9 +102,7 @@ export async function GET() {
   const data = parsePayload(workspace.payload);
 
   return NextResponse.json({
-    data: { ...data, userOwnedData: true, blankBoard: true },
-    seedDefaults: false,
-    includeProdCatalog: false,
+    data: { ...data, userOwnedData: true, blankBoard: true, detailDriven: true },
     updatedAt: workspace.updatedAt,
     updatedBy: workspace.updatedBy,
     user: {
@@ -155,6 +157,7 @@ export async function PUT(req: Request) {
       designSourceSanitized: true,
       userOwnedData: true,
       blankBoard: true,
+      detailDriven: true,
     };
   }
 

@@ -53,6 +53,7 @@
       designSourceSanitized: true,
       userOwnedData: true,
       blankBoard: true,
+      detailDriven: true,
     };
   }
 
@@ -116,10 +117,7 @@
     const data = json.data || {};
 
     if (typeof window.__linkprojectApplyRemote === "function") {
-      window.__linkprojectApplyRemote(data, {
-        seedDefaults: false,
-        includeProdCatalog: false,
-      });
+      window.__linkprojectApplyRemote(data);
     }
 
     applyReadonlyUi();
