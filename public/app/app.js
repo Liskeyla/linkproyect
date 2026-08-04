@@ -280,25 +280,11 @@ function prioridadByOrden(index, total) {
   return "Baja";
 }
 
-/** Responsables por etapa: vacíos por defecto; el usuario los escribe en Detalle */
+/** Responsables por etapa: vacíos por defecto; el usuario los escribe en Detalle o Excel */
 const RESPONSABLES = {};
 
-const LEGACY_DEFAULT_OWNERS = new Set([
-  "liskeyla macias",
-  "gabriela hidalgo",
-  "alfredo hermoso",
-  "erick valverde",
-  "cliente",
-]);
-
-function isLegacyDefaultOwner(name) {
-  return LEGACY_DEFAULT_OWNERS.has(normName(name));
-}
-
 function sanitizeResponsable(name) {
-  const raw = String(name || "").trim();
-  if (!raw || isLegacyDefaultOwner(raw)) return "";
-  return raw;
+  return String(name || "").trim();
 }
 
 const ROLES = {
@@ -658,22 +644,6 @@ function rebuildRequerimientos() {
   requerimientos = list.map((r, i) => ({ ...r, id: i + 1 }));
   applyStageEdits();
   applyReqDecisions();
-  // Quita nombres de responsables heredados del código; el usuario los escribe
-  requerimientos.forEach((r) => {
-    Object.keys(r.etapas || {}).forEach((key) => {
-      if (!r.etapas[key]) return;
-      r.etapas[key].responsable = sanitizeResponsable(r.etapas[key].responsable);
-    });
-  });
-  Object.keys(stageEdits).forEach((reqKey) => {
-    const stages = stageEdits[reqKey];
-    if (!stages || typeof stages !== "object") return;
-    Object.keys(stages).forEach((sk) => {
-      if (stages[sk] && typeof stages[sk] === "object") {
-        stages[sk].responsable = sanitizeResponsable(stages[sk].responsable);
-      }
-    });
-  });
   // Sin overlays de código: lo que hay en fuentes + stageEdits (base de datos) es la verdad
   ensureCustomStagesOnReqs();
   requerimientos = requerimientos.map((r, i) => ({ ...r, id: i + 1 }));
@@ -2215,9 +2185,10 @@ const EXCEL_HEADERS = [
   "inicio",
   "fin",
   "clasificacion",
+  "responsable",
 ];
 
-const EXCEL_STAGE_SUFFIXES = ["plan_inicio", "plan_fin", "real_inicio", "real_fin"];
+const EXCEL_STAGE_SUFFIXES = ["plan_inicio", "plan_fin", "real_inicio", "real_fin", "responsable"];
 
 function excelStageHeaders() {
   const cols = [];
@@ -2298,24 +2269,30 @@ function normalizeClasificacion(value) {
   return "diseno";
 }
 
-function makeStageEditPatch(planInicio, planFin, realInicio, realFin, stageKey, note) {
+function makeStageEditPatch(planInicio, planFin, realInicio, realFin, stageKey, note, responsable) {
   return {
     planInicio: planInicio || null,
     planFin: planFin || null,
     realInicio: realInicio || null,
     realFin: realFin || null,
-    responsable: "",
+    responsable: sanitizeResponsable(responsable || ""),
     avance: note || "",
   };
 }
 
 function rowHasExplicitStageDates(row) {
   return BASE_STAGES.some((s) =>
-    EXCEL_STAGE_SUFFIXES.some((suf) => {
+    ["plan_inicio", "plan_fin", "real_inicio", "real_fin"].some((suf) => {
       const v = row[`${s.key}_${suf}`];
       return v != null && String(v).trim() !== "";
     })
   );
+}
+
+function resolveStageResponsable(row, stageKey) {
+  const perStage = sanitizeResponsable(String(row[`${stageKey}_responsable`] || "").trim());
+  if (perStage) return perStage;
+  return sanitizeResponsable(String(row.responsable || "").trim());
 }
 
 function buildStageEditsFromExplicit(row) {
@@ -2325,14 +2302,20 @@ function buildStageEditsFromExplicit(row) {
     const planFin = excelCellToIso(row[`${s.key}_plan_fin`]);
     const realInicio = excelCellToIso(row[`${s.key}_real_inicio`]);
     const realFin = excelCellToIso(row[`${s.key}_real_fin`]);
-    if (!planInicio && !planFin && !realInicio && !realFin) return;
+    const responsable = resolveStageResponsable(row, s.key);
+    if (!planInicio && !planFin && !realInicio && !realFin && !responsable) return;
+    if (!planInicio && !planFin && !realInicio && !realFin) {
+      // Solo responsable: no crear etapa vacía sin fechas
+      return;
+    }
     edits[s.key] = makeStageEditPatch(
       planInicio,
       planFin || planInicio,
       realInicio,
       realFin,
       s.key,
-      `Importado Excel · ${s.label}`
+      `Importado Excel · ${s.label}`,
+      responsable
     );
   });
   return edits;
@@ -2344,6 +2327,7 @@ function buildStageEditsFromExplicit(row) {
  * - Desarrollo IT → etapas de Diseño cerradas + plan en Diseño visual/Desarrollo
  * - Pruebas QA → anteriores cerradas + plan en QA
  * - Producción → todas las etapas con fin real (cae en Listos)
+ * responsable (columna global o por etapa) se aplica a las etapas tocadas.
  */
 function buildStageEditsFromClasificacion(row) {
   const inicio = excelCellToIso(row.inicio) || todayIso();
@@ -2369,7 +2353,8 @@ function buildStageEditsFromClasificacion(row) {
         inicio,
         fin,
         s.key,
-        `Importado Excel · ${s.label} · Listo en producción`
+        `Importado Excel · ${s.label} · Listo en producción`,
+        resolveStageResponsable(row, s.key)
       );
     });
     return edits;
@@ -2378,6 +2363,7 @@ function buildStageEditsFromClasificacion(row) {
   groups.forEach((g, idx) => {
     g.stageKeys.forEach((key) => {
       const label = BASE_STAGES.find((s) => s.key === key)?.label || key;
+      const responsable = resolveStageResponsable(row, key);
       if (idx < targetIdx) {
         edits[key] = makeStageEditPatch(
           inicio,
@@ -2385,7 +2371,8 @@ function buildStageEditsFromClasificacion(row) {
           inicio,
           fin,
           key,
-          `Importado Excel · ${label} · cerrado`
+          `Importado Excel · ${label} · cerrado`,
+          responsable
         );
       } else if (idx === targetIdx) {
         edits[key] = makeStageEditPatch(
@@ -2394,7 +2381,8 @@ function buildStageEditsFromClasificacion(row) {
           currentDone ? inicio : null,
           currentDone ? fin : null,
           key,
-          `Importado Excel · ${label} · ${g.key}`
+          `Importado Excel · ${label} · ${g.key}`,
+          responsable
         );
       }
     });
@@ -2429,6 +2417,7 @@ const IMPORT_HEADER_ALIASES = {
     "bucket",
     "panorama",
   ],
+  responsable: ["responsable", "owner", "encargado", "asignado"],
 };
 
 function mapImportHeaders(rawHeaders) {
@@ -2442,8 +2431,12 @@ function mapImportHeaders(rawHeaders) {
         return;
       }
     }
-    // stage columns already normalized as levantamiento_plan_inicio etc.
-    if (BASE_STAGES.some((s) => EXCEL_STAGE_SUFFIXES.some((suf) => norm === `${s.key}_${suf}`))) {
+    // stage columns: levantamiento_plan_inicio, desarrollo_responsable, etc.
+    if (
+      BASE_STAGES.some((s) =>
+        EXCEL_STAGE_SUFFIXES.some((suf) => norm === `${s.key}_${suf}`)
+      )
+    ) {
       map[norm] = idx;
     }
   });
@@ -2476,6 +2469,7 @@ function downloadExcelTemplate() {
     inicio: todayIso(),
     fin: todayIso(),
     clasificacion: "Diseño",
+    responsable: "Nombre del responsable",
   };
   const exampleProd = {
     nombre: "Ejemplo — Reporte ya en producción",
@@ -2485,6 +2479,7 @@ function downloadExcelTemplate() {
     inicio: todayIso(),
     fin: todayIso(),
     clasificacion: "Producción",
+    responsable: "Nombre del responsable",
   };
 
   const toRow = (obj) => headers.map((h) => obj[h] ?? "");
@@ -2496,17 +2491,20 @@ function downloadExcelTemplate() {
     [""],
     ["1. Completa la hoja Requerimientos (una fila = un requerimiento)."],
     ["2. Campos obligatorios: nombre, area, inicio, fin."],
-    ["3. clasificacion define en qué columna del Panorama cae y si va a Listos:"],
+    ["3. responsable: escribe aquí el nombre de la persona a cargo (no viene por defecto)."],
+    ["   Se aplica a las etapas según clasificacion. Si necesitas uno distinto por etapa,"],
+    ["   usa columnas opcionales: levantamiento_responsable, desarrollo_responsable, etc."],
+    ["4. clasificacion define en qué columna del Panorama cae y si va a Listos:"],
     ["   - Diseño → Levantamiento / Prototipado / Documento funcional"],
     ["   - Desarrollo IT → Diseño visual / Desarrollo (etapas previas cerradas)"],
     ["   - Pruebas QA → QA / Pruebas usuario / Pruebas completas"],
     ["   - Producción → todas las etapas con fin real → pestaña Listos en producción"],
-    ["4. aplica: ambos | documento | desarrollo"],
-    ["5. estado: Pendiente | Planificar | En Proceso | Enviado | Listo | Detenido"],
-    ["6. Opcional: columnas por etapa (*_plan_inicio, *_plan_fin, *_real_inicio, *_real_fin)."],
+    ["5. aplica: ambos | documento | desarrollo"],
+    ["6. estado: Pendiente | Planificar | En Proceso | Enviado | Listo | Detenido"],
+    ["7. Opcional: columnas por etapa (*_plan_inicio, *_plan_fin, *_real_inicio, *_real_fin, *_responsable)."],
     ["   Si las llenas, tienen prioridad sobre clasificacion."],
-    ["7. Sube el archivo con el botón Subir Excel en Detalle."],
-    ["8. También puedes seguir agregando requerimientos uno a uno con + Agregar."],
+    ["8. Sube el archivo con el botón Subir Excel en Detalle."],
+    ["9. También puedes agregar uno a uno con + Agregar y escribir el responsable en el editor."],
     [""],
     ["Fechas: usa formato YYYY-MM-DD o DD/MM/YYYY."],
   ];
@@ -2523,6 +2521,7 @@ function downloadExcelTemplate() {
     ["clasificacion", "Diseño | Desarrollo IT | Pruebas QA | Producción"],
     ["estado", "Pendiente | Planificar | En Proceso | Enviado | Listo | Detenido"],
     ["aplica", "ambos | documento | desarrollo"],
+    ["responsable", "Texto libre — nombre de quien lleva la etapa (obligatorio si quieres verlo en Detalle)"],
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(catalogo), "Catalogo");
 
@@ -2621,9 +2620,10 @@ async function importRequirementsFromExcel(file) {
     const estado = normalizeEstado(get(raw, "estado"));
     const aplica = normalizeAplica(get(raw, "aplica"));
     const clasificacion = String(get(raw, "clasificacion") || "").trim();
+    const responsable = String(get(raw, "responsable") || "").trim();
 
-    const rowObj = { nombre, area, estado, aplica, inicio, fin, clasificacion };
-    // Attach explicit stage cells
+    const rowObj = { nombre, area, estado, aplica, inicio, fin, clasificacion, responsable };
+    // Attach explicit stage cells (fechas / responsable por etapa)
     Object.keys(headerMap).forEach((field) => {
       if (EXCEL_HEADERS.includes(field)) return;
       rowObj[field] = get(raw, field);
