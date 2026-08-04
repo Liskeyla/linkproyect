@@ -1991,7 +1991,7 @@ function saveReqEditor(reqId, form) {
       planFin: blankToNull(fd.get(`${s.key}.planFin`)),
       realInicio: blankToNull(fd.get(`${s.key}.realInicio`)),
       realFin: blankToNull(fd.get(`${s.key}.realFin`)),
-      responsable: blankToNull(fd.get(`${s.key}.responsable`)) || req.etapas[s.key].responsable,
+      responsable: sanitizeResponsable(String(fd.get(`${s.key}.responsable`) || "")),
       avance: blankToNull(fd.get(`${s.key}.avance`)) || "",
     };
     // Aprobación y Pruebas completas: nunca guardar fechas plan
