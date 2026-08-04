@@ -1,6 +1,7 @@
 /**
  * Puente de autenticación y persistencia remota (API /api/workspace).
- * Cada usuario tiene su propio workspace en base de datos.
+ * Cada usuario/rol tiene su propio workspace en base de datos:
+ * Detalle → Panorama / Cronograma / Resumen ejecutivo independientes.
  */
 (function () {
   let currentUser = null;
@@ -47,6 +48,7 @@
       doc: typeof REQ_FUENTE !== "undefined" ? REQ_FUENTE : [],
       dev: typeof DEV_FUENTE !== "undefined" ? DEV_FUENTE : [],
       stageEdits: typeof stageEdits !== "undefined" ? stageEdits : {},
+      reqDecisions: typeof reqDecisions !== "undefined" ? reqDecisions : {},
       reqOrder: typeof reqOrder !== "undefined" ? reqOrder : [],
       customStages: typeof customStages !== "undefined" ? customStages : [],
       decisionGlobal: typeof state !== "undefined" ? state.decisionGlobal : null,
@@ -111,26 +113,44 @@
 
     const nameEl = document.getElementById("userNameLabel");
     if (nameEl && currentUser) {
-      nameEl.textContent = `${currentUser.name || currentUser.email} · ${currentUser.role}`;
+      const roleLabel = currentUser.role === "admin" ? "admin" : currentUser.role === "editor" ? "editor" : currentUser.role;
+      nameEl.textContent = `${currentUser.name || currentUser.email} · ${roleLabel}`;
     }
 
     const data = json.data || {};
 
     if (typeof window.__linkprojectApplyRemote === "function") {
-      window.__linkprojectApplyRemote(data);
+      window.__linkprojectApplyRemote(data, { userId: currentUser?.id || currentUser?.email });
     }
 
     applyReadonlyUi();
     hydrated = true;
 
-    // Siempre persistir tras cargar (incluye userOwnedData y migraciones)
     if (canWrite() || canDecide()) {
       schedulePersist();
     }
     return true;
   }
 
+  function clearLocalCache() {
+    if (typeof clearAllLinkprojectLocalCache === "function") {
+      clearAllLinkprojectLocalCache();
+      return;
+    }
+    try {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("linkproject-")) keys.push(k);
+      }
+      keys.forEach((k) => localStorage.removeItem(k));
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
   document.getElementById("btnLogout")?.addEventListener("click", async () => {
+    clearLocalCache();
     await fetch("/api/auth/signout", { method: "POST" }).catch(() => null);
     const form = document.createElement("form");
     form.method = "POST";

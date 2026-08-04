@@ -16,7 +16,7 @@
         <div class="brand-mark" aria-hidden="true">LP</div>
         <div>
           <p class="brand-name">LinkProject</p>
-          <p class="brand-sub">Seguimiento de requerimientos por etapa</p>
+          <p class="brand-sub">Planificación independiente por usuario</p>
         </div>
       </div>
       <div class="topbar-meta">
@@ -39,6 +39,7 @@
         <button type="button" class="btn ghost" id="btnLogout" title="Cerrar sesión">Salir</button>
       </div>
     </header>
+    <div id="workspaceOwnerNote" class="workspace-owner-note" aria-live="polite"></div>
     <div id="readonlyBanner" class="readonly-banner" hidden>
       Estás en modo <strong>solo lectura</strong>. Puedes ver el tablero, pero no guardar cambios.
     </div>
@@ -47,9 +48,8 @@
       <div>
         <h1>Resumen ejecutivo</h1>
         <p>
-          Los indicadores salen del <strong>Detalle</strong> (mismas áreas y etapas que el Panorama).
-          Desde aquí puedes <strong>aprobar</strong>, pedir <strong>mejoras</strong> o
-          <strong>rechazar</strong>.
+          Indicadores de <strong>tu</strong> Detalle (Panorama, Cronograma y Decisión del mismo usuario).
+          Liskeyla (admin) y María (editor) planifican por separado: cada una ve solo sus requerimientos.
         </p>
       </div>
       <div class="kpi-grid" id="kpiGrid"></div>
@@ -79,7 +79,8 @@
       <div class="panel-head">
         <h2>Panorama por área</h2>
         <p>
-          Se calcula solo con el <strong>Detalle</strong>, agrupado por <strong>Área</strong>.
+          Se calcula solo con <strong>tu Detalle</strong>, agrupado por <strong>Área</strong>
+          (no comparte requerimientos con el otro usuario).
           Diseño = Levantamiento + Prototipado + Doc. funcional ·
           Desarrollo IT = Diseño visual + Desarrollo ·
           Pruebas QA = Etapa QA + Pruebas QA Usuario + Pruebas completas ·
@@ -275,12 +276,12 @@
         <div>
           <h2>Cronograma</h2>
           <p>
-            Línea de tiempo tomada del <strong>Detalle</strong> (fechas de documento y desarrollo).
-            Para agregar o editar, usa Detalle; aquí solo se visualiza.
+            Línea de tiempo de <strong>tu Detalle</strong> (fechas de documento y desarrollo).
+            Independiente por usuario: aquí no aparecen los requerimientos del otro rol.
           </p>
         </div>
         <div class="form-actions">
-          <button type="button" class="btn ghost" id="btnResetData" title="Borra todos los requerimientos de la base">Vaciar tablero</button>
+          <button type="button" class="btn ghost" id="btnResetData" title="Borra solo tus requerimientos">Vaciar mi tablero</button>
           <button type="button" class="btn primary" id="btnGoDetalle" title="Ir a Detalle para agregar">+ Agregar en Detalle</button>
         </div>
       </div>

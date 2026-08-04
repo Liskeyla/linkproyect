@@ -7,6 +7,7 @@ const EMPTY_PAYLOAD = JSON.stringify({
   doc: [],
   dev: [],
   stageEdits: {},
+  reqDecisions: {},
   reqOrder: [],
   customStages: [],
   decisionGlobal: null,

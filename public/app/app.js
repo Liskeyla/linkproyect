@@ -15,7 +15,31 @@ const BASE_STAGES = [
 let STAGES = BASE_STAGES.slice();
 let customStages = [];
 
-const CUSTOM_STAGES_KEY = "linkproject-custom-stages-v1";
+const CUSTOM_STAGES_KEY_BASE = "linkproject-custom-stages-v1";
+
+/** Caché local scoped por usuario (cada login tiene su propio workspace) */
+let storageUserId = "anon";
+
+function setStorageUser(userId) {
+  storageUserId = String(userId || "anon");
+}
+
+function scopedKey(base) {
+  return `${base}:${storageUserId}`;
+}
+
+function clearAllLinkprojectLocalCache() {
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("linkproject-")) keys.push(k);
+    }
+    keys.forEach((k) => localStorage.removeItem(k));
+  } catch (_) {
+    /* ignore */
+  }
+}
 
 function slugStageKey(label) {
   const base = String(label || "etapa")
@@ -39,7 +63,7 @@ function rebuildStagesList() {
 
 function loadCustomStages() {
   try {
-    const raw = localStorage.getItem(CUSTOM_STAGES_KEY);
+    const raw = localStorage.getItem(scopedKey(CUSTOM_STAGES_KEY_BASE));
     if (!raw) return;
     const data = JSON.parse(raw);
     if (!Array.isArray(data)) return;
@@ -58,7 +82,7 @@ function loadCustomStages() {
 }
 
 function saveCustomStages() {
-  localStorage.setItem(CUSTOM_STAGES_KEY, JSON.stringify(customStages));
+  localStorage.setItem(scopedKey(CUSTOM_STAGES_KEY_BASE), JSON.stringify(customStages));
   if (typeof window.__linkprojectSchedulePersist === "function") window.__linkprojectSchedulePersist();
 }
 
@@ -430,12 +454,15 @@ let REQ_FUENTE = [];
 let DEV_FUENTE = [];
 let requerimientos = [];
 let stageEdits = {};
+/** Decisiones por requerimiento (Resumen / Decisión) — propias de cada usuario */
+let reqDecisions = {};
 let reqOrder = [];
 let activeEditReqId = null;
 
-const STORAGE_KEY = "linkproject-fuentes-v1";
-const STAGE_EDITS_KEY = "linkproject-stage-edits-v1";
-const REQ_ORDER_KEY = "linkproject-req-order-v1";
+const STORAGE_KEY_BASE = "linkproject-fuentes-v1";
+const STAGE_EDITS_KEY_BASE = "linkproject-stage-edits-v1";
+const REQ_ORDER_KEY_BASE = "linkproject-req-order-v1";
+const REQ_DECISIONS_KEY_BASE = "linkproject-req-decisions-v1";
 
 function cloneFuente(list) {
   return list.map((r) => ({ ...r }));
@@ -443,7 +470,7 @@ function cloneFuente(list) {
 
 function loadFuentes() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(scopedKey(STORAGE_KEY_BASE));
     if (!raw) return false;
     const data = JSON.parse(raw);
     if (Array.isArray(data.doc) && Array.isArray(data.dev)) {
@@ -459,7 +486,7 @@ function loadFuentes() {
 
 function saveFuentes() {
   localStorage.setItem(
-    STORAGE_KEY,
+    scopedKey(STORAGE_KEY_BASE),
     JSON.stringify({
       doc: REQ_FUENTE,
       dev: DEV_FUENTE,
@@ -471,7 +498,7 @@ function saveFuentes() {
 
 function loadStageEdits() {
   try {
-    const raw = localStorage.getItem(STAGE_EDITS_KEY);
+    const raw = localStorage.getItem(scopedKey(STAGE_EDITS_KEY_BASE));
     if (!raw) return;
     const data = JSON.parse(raw);
     if (data && typeof data === "object") stageEdits = data;
@@ -481,8 +508,31 @@ function loadStageEdits() {
 }
 
 function saveStageEdits() {
-  localStorage.setItem(STAGE_EDITS_KEY, JSON.stringify(stageEdits));
+  localStorage.setItem(scopedKey(STAGE_EDITS_KEY_BASE), JSON.stringify(stageEdits));
   if (typeof window.__linkprojectSchedulePersist === "function") window.__linkprojectSchedulePersist();
+}
+
+function applyReqDecisions() {
+  requerimientos.forEach((r) => {
+    const d = reqDecisions[normName(r.nombre)];
+    if (!d || typeof d !== "object") return;
+    if (d.decision) r.decision = d.decision;
+    if (d.comentario != null) r.comentario = String(d.comentario);
+  });
+}
+
+function saveReqDecisions() {
+  localStorage.setItem(scopedKey(REQ_DECISIONS_KEY_BASE), JSON.stringify(reqDecisions));
+  if (typeof window.__linkprojectSchedulePersist === "function") window.__linkprojectSchedulePersist();
+}
+
+function upsertReqDecision(req) {
+  if (!req?.nombre) return;
+  reqDecisions[normName(req.nombre)] = {
+    decision: req.decision || "pendiente",
+    comentario: req.comentario || "",
+  };
+  saveReqDecisions();
 }
 
 function applyStageEdits() {
@@ -506,7 +556,7 @@ function applyStageEdits() {
 
 function loadReqOrder() {
   try {
-    const raw = localStorage.getItem(REQ_ORDER_KEY);
+    const raw = localStorage.getItem(scopedKey(REQ_ORDER_KEY_BASE));
     if (!raw) return;
     const data = JSON.parse(raw);
     if (Array.isArray(data)) reqOrder = data.map(String);
@@ -516,7 +566,7 @@ function loadReqOrder() {
 }
 
 function saveReqOrder() {
-  localStorage.setItem(REQ_ORDER_KEY, JSON.stringify(reqOrder));
+  localStorage.setItem(scopedKey(REQ_ORDER_KEY_BASE), JSON.stringify(reqOrder));
   if (typeof window.__linkprojectSchedulePersist === "function") window.__linkprojectSchedulePersist();
 }
 
@@ -600,6 +650,7 @@ function rebuildRequerimientos() {
 
   requerimientos = list.map((r, i) => ({ ...r, id: i + 1 }));
   applyStageEdits();
+  applyReqDecisions();
   // Sin overlays de código: lo que hay en fuentes + stageEdits (base de datos) es la verdad
   ensureCustomStagesOnReqs();
   requerimientos = requerimientos.map((r, i) => ({ ...r, id: i + 1 }));
@@ -612,8 +663,14 @@ function syncWorkspaceUiForUser() {
   const btn = document.getElementById("btnResetData");
   if (!btn) return;
   btn.hidden = false;
-  btn.textContent = "Vaciar tablero";
-  btn.title = "Borra todos los requerimientos guardados en la base de datos";
+  btn.textContent = "Vaciar mi tablero";
+  btn.title = "Borra solo tus requerimientos (no afecta al otro usuario)";
+
+  const user = typeof window.__linkprojectGetUser === "function" ? window.__linkprojectGetUser() : null;
+  const note = document.getElementById("workspaceOwnerNote");
+  if (note && user) {
+    note.textContent = `Planificación de ${user.name || user.email} · independiente por usuario`;
+  }
 }
 
 function upsertReqFuente(item, estado) {
@@ -672,8 +729,8 @@ function refreshAppFromData() {
     const n = buildCronoRows().length;
     status.textContent =
       n === 0
-        ? "Cronograma vacío · agrega requerimientos en Detalle (se reflejan solos)."
-        : `Cronograma: ${n} requerimiento${n === 1 ? "" : "s"} desde Detalle · ${new Date().toLocaleString("es-EC")}`;
+        ? "Cronograma vacío · agrega requerimientos en tu Detalle (se reflejan solos)."
+        : `Cronograma: ${n} requerimiento${n === 1 ? "" : "s"} de tu Detalle · ${new Date().toLocaleString("es-EC")}`;
   }
 }
 
@@ -2275,8 +2332,10 @@ modal.addEventListener("close", () => {
   req.decision = pendingAction.action;
   req.comentario = document.getElementById("modalComment").value.trim();
   pendingAction = null;
+  upsertReqDecision(req);
   renderDetail();
   renderDecisionSummary();
+  renderKpis();
 });
 
 document.getElementById("modalConfirm").addEventListener("click", (e) => {
@@ -2392,30 +2451,43 @@ document.querySelectorAll(".area-pick").forEach((sel) => {
 });
 
 document.getElementById("btnResetData").addEventListener("click", () => {
-  if (!confirm("¿Vaciar todo el tablero? Se borrarán los requerimientos guardados en la base.")) return;
+  if (!confirm("¿Vaciar tu tablero? Solo borra tus requerimientos; el otro usuario no se ve afectado.")) return;
   REQ_FUENTE = [];
   DEV_FUENTE = [];
   stageEdits = {};
+  reqDecisions = {};
   reqOrder = [];
   customStages = [];
   window.__linkprojectUserOwnedData = true;
   saveFuentes();
   saveStageEdits();
+  saveReqDecisions();
   saveReqOrder();
   saveCustomStages();
   rebuildStagesList();
   closeStageDrawer();
   refreshAppFromData();
   if (typeof window.__linkprojectPersistNow === "function") window.__linkprojectPersistNow();
-  showToast("Tablero vacío · agrega desde Detalle", "ok");
+  showToast("Tu tablero quedó vacío · agrega desde Detalle", "ok");
 });
 
 /* Init — espera datos remotos vía auth-bridge (__linkprojectApplyRemote) */
 function applyDecisionUi(decision) {
-  if (!decision || !decision.resolucion) return;
   const pill = document.getElementById("estadoGeneralPill");
   if (!pill) return;
   pill.classList.remove("aprobado", "mejoras", "rechazado");
+  const strong = pill.querySelector("strong");
+  const result = document.getElementById("decisionResult");
+
+  if (!decision || !decision.resolucion) {
+    if (strong) strong.textContent = "Pendiente de gerencia";
+    if (result) {
+      result.hidden = true;
+      result.textContent = "";
+    }
+    return;
+  }
+
   const map = {
     aprobar: { cls: "aprobado", text: "Aprobado por gerencia" },
     mejoras: { cls: "mejoras", text: "Aprobado con mejoras" },
@@ -2424,21 +2496,23 @@ function applyDecisionUi(decision) {
   const m = map[decision.resolucion];
   if (!m) return;
   pill.classList.add(m.cls);
-  const strong = pill.querySelector("strong");
   if (strong) strong.textContent = m.text;
 }
 
-window.__linkprojectApplyRemote = function applyRemote(data) {
+window.__linkprojectApplyRemote = function applyRemote(data, meta = {}) {
   const payload = data || {};
 
+  if (meta.userId) setStorageUser(meta.userId);
   window.__linkprojectUserOwnedData = true;
   window.__linkprojectDesignSourceSanitized = true;
 
-  // Solo lo que viene de la base de datos (nunca datos incrustados)
+  // Solo el workspace de ESTE usuario (nunca datos de otro rol)
   REQ_FUENTE = Array.isArray(payload.doc) ? payload.doc.map((r) => ({ ...r })) : [];
   DEV_FUENTE = Array.isArray(payload.dev) ? payload.dev.map((r) => ({ ...r })) : [];
   stageEdits =
     payload.stageEdits && typeof payload.stageEdits === "object" ? { ...payload.stageEdits } : {};
+  reqDecisions =
+    payload.reqDecisions && typeof payload.reqDecisions === "object" ? { ...payload.reqDecisions } : {};
   reqOrder = Array.isArray(payload.reqOrder) ? payload.reqOrder.slice() : [];
   customStages = Array.isArray(payload.customStages)
     ? payload.customStages
@@ -2457,13 +2531,15 @@ window.__linkprojectApplyRemote = function applyRemote(data) {
     applyDecisionUi(payload.decisionGlobal);
   } else {
     state.decisionGlobal = null;
+    applyDecisionUi(null);
   }
 
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ doc: REQ_FUENTE, dev: DEV_FUENTE }));
-    localStorage.setItem(STAGE_EDITS_KEY, JSON.stringify(stageEdits));
-    localStorage.setItem(REQ_ORDER_KEY, JSON.stringify(reqOrder));
-    localStorage.setItem(CUSTOM_STAGES_KEY, JSON.stringify(customStages));
+    localStorage.setItem(scopedKey(STORAGE_KEY_BASE), JSON.stringify({ doc: REQ_FUENTE, dev: DEV_FUENTE }));
+    localStorage.setItem(scopedKey(STAGE_EDITS_KEY_BASE), JSON.stringify(stageEdits));
+    localStorage.setItem(scopedKey(REQ_ORDER_KEY_BASE), JSON.stringify(reqOrder));
+    localStorage.setItem(scopedKey(CUSTOM_STAGES_KEY_BASE), JSON.stringify(customStages));
+    localStorage.setItem(scopedKey(REQ_DECISIONS_KEY_BASE), JSON.stringify(reqDecisions));
   } catch (_) {
     /* ignore */
   }
@@ -2478,7 +2554,7 @@ function deleteRequirement(reqId) {
   }
   const req = requerimientos.find((r) => r.id === reqId);
   if (!req) return;
-  if (!confirm(`¿Eliminar el requerimiento "${req.nombre}"? Esta acción se guarda en la base de datos.`)) {
+  if (!confirm(`¿Eliminar el requerimiento "${req.nombre}"? Esta acción se guarda en tu workspace.`)) {
     return;
   }
 
@@ -2486,10 +2562,12 @@ function deleteRequirement(reqId) {
   REQ_FUENTE = REQ_FUENTE.filter((r) => !namesMatch(r.nombre, req.nombre));
   DEV_FUENTE = DEV_FUENTE.filter((r) => !namesMatch(r.nombre, req.nombre));
   if (stageEdits[key]) delete stageEdits[key];
+  if (reqDecisions[key]) delete reqDecisions[key];
   reqOrder = reqOrder.filter((k) => k !== key && !namesMatch(k, req.nombre));
 
   saveFuentes();
   saveStageEdits();
+  saveReqDecisions();
   saveReqOrder();
   closeStageDrawer();
   refreshAppFromData();

@@ -7,6 +7,7 @@ const EMPTY_PAYLOAD = {
   doc: [] as unknown[],
   dev: [] as unknown[],
   stageEdits: {} as Record<string, unknown>,
+  reqDecisions: {} as Record<string, unknown>,
   reqOrder: [] as unknown[],
   customStages: [] as unknown[],
   decisionGlobal: null as unknown,
@@ -151,6 +152,8 @@ export async function PUT(req: Request) {
       doc: Array.isArray(body.doc) ? body.doc : current.doc,
       dev: Array.isArray(body.dev) ? body.dev : current.dev,
       stageEdits: body.stageEdits && typeof body.stageEdits === "object" ? body.stageEdits : current.stageEdits,
+      reqDecisions:
+        body.reqDecisions && typeof body.reqDecisions === "object" ? body.reqDecisions : current.reqDecisions,
       reqOrder: Array.isArray(body.reqOrder) ? body.reqOrder : current.reqOrder,
       customStages: Array.isArray(body.customStages) ? body.customStages : current.customStages,
       decisionGlobal: body.decisionGlobal !== undefined ? body.decisionGlobal : current.decisionGlobal,
