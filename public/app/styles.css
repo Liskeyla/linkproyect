@@ -67,7 +67,7 @@ body {
 }
 
 .brand-mark {
-  width: 46px;
+  width: 52px;
   height: 46px;
   border-radius: 12px;
   background: linear-gradient(145deg, var(--navy), #2f6a8f);
@@ -75,13 +75,14 @@ body {
   display: grid;
   place-items: center;
   font-weight: 700;
+  font-size: 0.72rem;
   letter-spacing: 0.04em;
   box-shadow: var(--shadow);
 }
 
 .brand-name {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   font-weight: 700;
   color: var(--navy);
 }

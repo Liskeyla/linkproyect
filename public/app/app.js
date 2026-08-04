@@ -2487,7 +2487,7 @@ function downloadExcelTemplate() {
   const wb = XLSX.utils.book_new();
 
   const instrucciones = [
-    ["LinkProject — Plantilla de carga masiva de requerimientos"],
+    ["LMS Project Manager — Plantilla de carga masiva de requerimientos"],
     [""],
     ["1. Completa la hoja Requerimientos (una fila = un requerimiento)."],
     ["2. Campos obligatorios: nombre, area, inicio, fin."],
@@ -2525,7 +2525,7 @@ function downloadExcelTemplate() {
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(catalogo), "Catalogo");
 
-  XLSX.writeFile(wb, `LinkProject_plantilla_requerimientos_${todayIso()}.xlsx`);
+  XLSX.writeFile(wb, `LMS_Project_Manager_plantilla_requerimientos_${todayIso()}.xlsx`);
   showToast("Plantilla Excel descargada", "ok");
 }
 
@@ -2918,7 +2918,7 @@ document.getElementById("btnExport").addEventListener("click", () => {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "linkproject-decision-gerencia.json";
+  a.download = "lms-project-manager-decision-gerencia.json";
   a.click();
   URL.revokeObjectURL(a.href);
 });

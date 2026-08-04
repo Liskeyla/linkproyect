@@ -1,4 +1,4 @@
-# LinkProject — Seguimiento de requerimientos
+# LMS Project Manager — Seguimiento de requerimientos
 
 App web con **login**, **roles** y **datos compartidos en base de datos**, lista para publicar en **Vercel** (similar al Agente de Procesos).
 

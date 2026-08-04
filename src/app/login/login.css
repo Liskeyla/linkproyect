@@ -22,7 +22,7 @@
 }
 
 .login-card .mark {
-  width: 48px;
+  width: 54px;
   height: 48px;
   border-radius: 14px;
   background: #0f2b4c;
@@ -30,11 +30,13 @@
   display: grid;
   place-items: center;
   font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
 }
 
 .login-card h1 {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.2rem;
   color: #0f2b4c;
 }
 

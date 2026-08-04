@@ -53,9 +53,9 @@ export default function LoginPage() {
     <main className="login-shell">
       <section className="login-card">
         <div className="brand">
-          <div className="mark">LP</div>
+          <div className="mark">LMS</div>
           <div>
-            <h1>LinkProject</h1>
+            <h1>LMS Project Manager</h1>
             <p>Seguimiento de requerimientos · acceso seguro</p>
           </div>
         </div>
