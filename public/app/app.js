@@ -88,7 +88,7 @@ function saveCustomStages() {
 
 function ensureCustomStagesOnReqs() {
   customStages.forEach((s) => {
-    if (!RESPONSABLES[s.key]) RESPONSABLES[s.key] = "Por asignar";
+    if (!RESPONSABLES[s.key]) RESPONSABLES[s.key] = "";
     if (!ROLES[s.key]) ROLES[s.key] = "Columna personalizada";
     requerimientos.forEach((r) => {
       if (!r.etapas[s.key]) {
@@ -280,19 +280,26 @@ function prioridadByOrden(index, total) {
   return "Baja";
 }
 
-/** Responsables por etapa (área de proyecto / desarrollo) */
-const RESPONSABLES = {
-  levantamiento: "Liskeyla Macías",
-  prototipado: "Liskeyla Macías",
-  documento: "Gabriela Hidalgo",
-  aprobacion: "Gabriela Hidalgo",
-  disenoVisual: "Liskeyla Macías",
-  desarrollo: "Alfredo Hermoso",
-  qa: "Erick Valverde",
-  pruebasCompletas: "Cliente",
-  procesos: "Liskeyla Macías",
-  produccion: "Gabriela Hidalgo",
-};
+/** Responsables por etapa: vacíos por defecto; el usuario los escribe en Detalle */
+const RESPONSABLES = {};
+
+const LEGACY_DEFAULT_OWNERS = new Set([
+  "liskeyla macias",
+  "gabriela hidalgo",
+  "alfredo hermoso",
+  "erick valverde",
+  "cliente",
+]);
+
+function isLegacyDefaultOwner(name) {
+  return LEGACY_DEFAULT_OWNERS.has(normName(name));
+}
+
+function sanitizeResponsable(name) {
+  const raw = String(name || "").trim();
+  if (!raw || isLegacyDefaultOwner(raw)) return "";
+  return raw;
+}
 
 const ROLES = {
   levantamiento: "Área de proyectos — flujo de levantamiento",
@@ -308,7 +315,7 @@ const ROLES = {
 };
 
 function responsableEtapa(stageKey) {
-  return RESPONSABLES[stageKey] || "Por asignar";
+  return sanitizeResponsable(RESPONSABLES[stageKey] || "");
 }
 
 function normName(s) {
@@ -547,7 +554,7 @@ function applyStageEdits() {
         planFin: patch.planFin,
         realInicio: patch.realInicio,
         realFin: patch.realFin,
-        responsable: patch.responsable || r.etapas[s.key].responsable,
+        responsable: sanitizeResponsable(patch.responsable || r.etapas[s.key].responsable),
         avance: patch.avance ?? r.etapas[s.key].avance,
       });
     });
@@ -651,6 +658,22 @@ function rebuildRequerimientos() {
   requerimientos = list.map((r, i) => ({ ...r, id: i + 1 }));
   applyStageEdits();
   applyReqDecisions();
+  // Quita nombres de responsables heredados del código; el usuario los escribe
+  requerimientos.forEach((r) => {
+    Object.keys(r.etapas || {}).forEach((key) => {
+      if (!r.etapas[key]) return;
+      r.etapas[key].responsable = sanitizeResponsable(r.etapas[key].responsable);
+    });
+  });
+  Object.keys(stageEdits).forEach((reqKey) => {
+    const stages = stageEdits[reqKey];
+    if (!stages || typeof stages !== "object") return;
+    Object.keys(stages).forEach((sk) => {
+      if (stages[sk] && typeof stages[sk] === "object") {
+        stages[sk].responsable = sanitizeResponsable(stages[sk].responsable);
+      }
+    });
+  });
   // Sin overlays de código: lo que hay en fuentes + stageEdits (base de datos) es la verdad
   ensureCustomStagesOnReqs();
   requerimientos = requerimientos.map((r, i) => ({ ...r, id: i + 1 }));
@@ -699,7 +722,7 @@ function snapshotStageEditsFromReqs(list) {
         planFin: et.planFin || null,
         realInicio: et.realInicio || null,
         realFin: et.realFin || null,
-        responsable: et.responsable || responsableEtapa(s.key),
+        responsable: et.responsable ? sanitizeResponsable(et.responsable) : "",
         avance: et.avance || "",
       };
     });
@@ -935,8 +958,14 @@ function renderCronograma() {
       const estado = row.estado || row.dev?.estado || row.doc?.estado || "Pendiente";
       const docBar = row.doc ? barStyle(row.doc.inicio, row.doc.fin, start, end) : null;
       const devBar = row.dev ? barStyle(row.dev.inicio, row.dev.fin, start, end) : null;
+      const req = requerimientos.find((r) => namesMatch(r.nombre, row.nombre));
       const owner =
-        row.dev ? RESPONSABLES.desarrollo : row.doc ? RESPONSABLES.documento : RESPONSABLES.levantamiento;
+        sanitizeResponsable(
+          req?.etapas?.desarrollo?.responsable ||
+            req?.etapas?.documento?.responsable ||
+            req?.etapas?.levantamiento?.responsable ||
+            ""
+        ) || "Sin responsable";
       const noBars = !docBar && !devBar;
 
       return `
@@ -1503,7 +1532,7 @@ function reqStageCell(reqId, stageDef, et) {
             </div>
           </div>
           <div class="duo-delta ${tone || "muted"}">${metrics.statusLabel}</div>
-          <div class="stage-owner">${et.responsable || "Sin responsable"}</div>
+          <div class="stage-owner">${escapeHtml(sanitizeResponsable(et.responsable) || "Sin responsable")}</div>
         </div>
       </button>
     </td>`;
@@ -1585,7 +1614,7 @@ function reqClienteEsperaCell(reqId, stageDef, et) {
             </div>
           </div>
           <div class="duo-delta ${tone || "muted"}">${statusLabel}</div>
-          <div class="stage-owner">${et.responsable || "Cliente"}</div>
+          <div class="stage-owner">${escapeHtml(sanitizeResponsable(et.responsable) || "Sin responsable")}</div>
         </div>
       </button>
     </td>`;
@@ -1788,7 +1817,7 @@ function editStageSection(req, stageDef) {
         <input type="hidden" name="${stageDef.key}.planFin" value="" />
         <label class="edit-field full">
           <span>Responsable</span>
-          <input type="text" name="${stageDef.key}.responsable" value="${escapeHtml(et.responsable || "")}" />
+          <input type="text" name="${stageDef.key}.responsable" value="${escapeHtml(sanitizeResponsable(et.responsable) || "")}" placeholder="Escribe el responsable" />
         </label>
         <label class="edit-field full">
           <span>Avance / nota</span>
@@ -1827,7 +1856,7 @@ function editStageSection(req, stageDef) {
         </label>
         <label class="edit-field full">
           <span>Responsable</span>
-          <input type="text" name="${stageDef.key}.responsable" value="${escapeHtml(et.responsable || "")}" />
+          <input type="text" name="${stageDef.key}.responsable" value="${escapeHtml(sanitizeResponsable(et.responsable) || "")}" placeholder="Escribe el responsable" />
         </label>
         <label class="edit-field full">
           <span>Avance / nota</span>
@@ -2275,7 +2304,7 @@ function makeStageEditPatch(planInicio, planFin, realInicio, realFin, stageKey, 
     planFin: planFin || null,
     realInicio: realInicio || null,
     realFin: realFin || null,
-    responsable: responsableEtapa(stageKey),
+    responsable: "",
     avance: note || "",
   };
 }
