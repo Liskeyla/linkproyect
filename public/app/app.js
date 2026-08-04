@@ -665,12 +665,6 @@ function syncWorkspaceUiForUser() {
   btn.hidden = false;
   btn.textContent = "Vaciar mi tablero";
   btn.title = "Borra solo tus requerimientos (no afecta al otro usuario)";
-
-  const user = typeof window.__linkprojectGetUser === "function" ? window.__linkprojectGetUser() : null;
-  const note = document.getElementById("workspaceOwnerNote");
-  if (note && user) {
-    note.textContent = `Planificación de ${user.name || user.email} · independiente por usuario`;
-  }
 }
 
 function upsertReqFuente(item, estado) {

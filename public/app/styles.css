@@ -109,21 +109,6 @@ body {
   font-size: 0.86rem;
 }
 
-.workspace-owner-note {
-  margin: 0 0 10px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--accent, #0b6e4f) 10%, transparent);
-  color: var(--ink, #1a2b22);
-  border: 1px solid color-mix(in srgb, var(--accent, #0b6e4f) 22%, transparent);
-  font-size: 0.84rem;
-  font-weight: 500;
-}
-
-.workspace-owner-note:empty {
-  display: none;
-}
-
 body.is-readonly .detail-toolbar #btnAddReq,
 body.is-readonly #btnResetData,
 body.is-readonly #btnGoDetalle {
