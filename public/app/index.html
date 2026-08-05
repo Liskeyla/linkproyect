@@ -140,6 +140,15 @@
           <button type="button" class="btn ghost" id="btnDownloadExcel" title="Descargar plantilla Excel para carga masiva">Plantilla Excel</button>
           <button type="button" class="btn ghost" id="btnImportExcel" title="Subir Excel con requerimientos">Subir Excel</button>
           <input type="file" id="inputImportExcel" accept=".xlsx,.xls,.csv" hidden />
+          <button
+            type="button"
+            class="btn ghost"
+            id="btnExpandDetailTable"
+            title="Expandir tabla a pantalla completa"
+            aria-label="Expandir tabla de requerimientos a pantalla completa"
+          >
+            ⤢ Pantalla completa
+          </button>
           <button type="button" class="btn primary" id="btnAddReq" title="Agregar una nueva fila de requerimiento">+ Agregar</button>
         </div>
       </div>
@@ -230,56 +239,49 @@
       </div>
 
       <div class="detail-layout">
-        <div class="table-shell">
-          <table class="panorama-table detail-summary" id="detailTable">
-            <thead>
-              <tr>
-                <th>N°</th>
-                <th>Requerimiento</th>
-                <th>Prioridad</th>
-                <th>Área</th>
-                <th class="col-proyectos">Levantamiento</th>
-                <th class="col-proyectos">Prototipado</th>
-                <th class="col-proyectos">Doc. funcional</th>
-                <th class="col-cliente">Aprobación</th>
-                <th class="col-diseno">Desarrollo</th>
-                <th class="col-proyectos">Etapa QA</th>
-                <th class="col-proyectos">Pruebas QA Usuario Proyecto</th>
-                <th class="col-cliente">Pruebas completas</th>
-                <th>Producción</th>
-                <th>Cumpl. total</th>
-                <th>Decisión</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-
-        <aside class="stage-drawer" id="stageDrawer" hidden aria-labelledby="drawerReq">
+        <div class="detail-table-frame" id="detailTableShell">
           <button
             type="button"
-            class="drawer-corner-expand"
-            id="drawerCornerExpand"
+            class="table-corner-expand"
+            id="detailTableExpand"
             title="Pantalla completa"
-            aria-label="Expandir detalle a pantalla completa"
+            aria-label="Expandir tabla de requerimientos a pantalla completa"
           >
             <span aria-hidden="true"></span>
           </button>
+          <div class="table-shell">
+            <table class="panorama-table detail-summary" id="detailTable">
+              <thead>
+                <tr>
+                  <th>N°</th>
+                  <th>Requerimiento</th>
+                  <th>Prioridad</th>
+                  <th>Área</th>
+                  <th class="col-proyectos">Levantamiento</th>
+                  <th class="col-proyectos">Prototipado</th>
+                  <th class="col-proyectos">Doc. funcional</th>
+                  <th class="col-cliente">Aprobación</th>
+                  <th class="col-diseno">Desarrollo</th>
+                  <th class="col-proyectos">Etapa QA</th>
+                  <th class="col-proyectos">Pruebas QA Usuario Proyecto</th>
+                  <th class="col-cliente">Pruebas completas</th>
+                  <th>Producción</th>
+                  <th>Cumpl. total</th>
+                  <th>Decisión</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <aside class="stage-drawer" id="stageDrawer" hidden aria-labelledby="drawerReq">
           <div class="drawer-head">
             <div>
               <p class="drawer-kicker" id="drawerStage">Editar fechas</p>
               <h3 id="drawerReq">—</h3>
             </div>
             <div class="drawer-head-actions">
-              <button
-                type="button"
-                class="btn ghost"
-                id="drawerExpand"
-                title="Pantalla completa"
-                aria-label="Expandir a pantalla completa"
-              >
-                ⤢
-              </button>
               <button type="button" class="btn ghost" id="drawerClose" aria-label="Cerrar panel">✕</button>
             </div>
           </div>

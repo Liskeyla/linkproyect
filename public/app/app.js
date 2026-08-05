@@ -2010,55 +2010,54 @@ function saveReqEditor(reqId, form) {
   );
 }
 
-function setDrawerExpanded(expanded) {
-  const drawer = document.getElementById("stageDrawer");
-  if (!drawer) return;
-  drawer.classList.toggle("is-expanded", !!expanded);
-  document.body.classList.toggle("drawer-expanded", !!expanded);
+function setDetailTableExpanded(expanded) {
+  const shell = document.getElementById("detailTableShell");
+  if (!shell) return;
+  shell.classList.toggle("is-expanded", !!expanded);
+  document.body.classList.toggle("table-expanded", !!expanded);
 
-  let backdrop = document.getElementById("drawerExpandBackdrop");
+  let backdrop = document.getElementById("detailTableExpandBackdrop");
   if (expanded) {
     if (!backdrop) {
       backdrop = document.createElement("button");
       backdrop.type = "button";
-      backdrop.id = "drawerExpandBackdrop";
-      backdrop.className = "drawer-expand-backdrop";
+      backdrop.id = "detailTableExpandBackdrop";
+      backdrop.className = "table-expand-backdrop";
       backdrop.setAttribute("aria-label", "Salir de pantalla completa");
-      backdrop.addEventListener("click", () => setDrawerExpanded(false));
+      backdrop.addEventListener("click", () => setDetailTableExpanded(false));
       document.body.appendChild(backdrop);
     }
   } else if (backdrop) {
     backdrop.remove();
   }
 
-  const expandBtn = document.getElementById("drawerExpand");
-  if (expandBtn) {
-    expandBtn.textContent = expanded ? "⤡" : "⤢";
-    expandBtn.title = expanded ? "Salir de pantalla completa" : "Pantalla completa";
-    expandBtn.setAttribute(
-      "aria-label",
-      expanded ? "Salir de pantalla completa" : "Expandir a pantalla completa"
-    );
-  }
-  const corner = document.getElementById("drawerCornerExpand");
+  const label = expanded ? "Salir de pantalla completa" : "Pantalla completa";
+  const aria = expanded
+    ? "Salir de pantalla completa"
+    : "Expandir tabla de requerimientos a pantalla completa";
+
+  const corner = document.getElementById("detailTableExpand");
   if (corner) {
-    corner.title = expanded ? "Salir de pantalla completa" : "Pantalla completa";
-    corner.setAttribute(
-      "aria-label",
-      expanded ? "Salir de pantalla completa" : "Expandir detalle a pantalla completa"
-    );
+    corner.title = label;
+    corner.setAttribute("aria-label", aria);
+  }
+
+  const toolbarBtn = document.getElementById("btnExpandDetailTable");
+  if (toolbarBtn) {
+    toolbarBtn.textContent = expanded ? "⤡ Salir" : "⤢ Pantalla completa";
+    toolbarBtn.title = label;
+    toolbarBtn.setAttribute("aria-label", aria);
   }
 }
 
-function toggleDrawerExpanded() {
-  const drawer = document.getElementById("stageDrawer");
-  if (!drawer || drawer.hidden) return;
-  setDrawerExpanded(!drawer.classList.contains("is-expanded"));
+function toggleDetailTableExpanded() {
+  const shell = document.getElementById("detailTableShell");
+  if (!shell) return;
+  setDetailTableExpanded(!shell.classList.contains("is-expanded"));
 }
 
 function closeStageDrawer() {
   activeEditReqId = null;
-  setDrawerExpanded(false);
   document.querySelector(".detail-layout")?.classList.remove("with-drawer");
   const drawer = document.getElementById("stageDrawer");
   if (drawer) drawer.hidden = true;
@@ -2861,14 +2860,14 @@ detailTbody.addEventListener("click", (e) => {
 });
 
 document.getElementById("drawerClose").addEventListener("click", closeStageDrawer);
-document.getElementById("drawerExpand")?.addEventListener("click", toggleDrawerExpanded);
-document.getElementById("drawerCornerExpand")?.addEventListener("click", toggleDrawerExpanded);
+document.getElementById("detailTableExpand")?.addEventListener("click", toggleDetailTableExpanded);
+document.getElementById("btnExpandDetailTable")?.addEventListener("click", toggleDetailTableExpanded);
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    const drawer = document.getElementById("stageDrawer");
-    if (drawer && !drawer.hidden && drawer.classList.contains("is-expanded")) {
+    const shell = document.getElementById("detailTableShell");
+    if (shell?.classList.contains("is-expanded")) {
       e.preventDefault();
-      setDrawerExpanded(false);
+      setDetailTableExpanded(false);
     }
   }
 });
