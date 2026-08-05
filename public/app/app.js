@@ -3,7 +3,6 @@ const BASE_STAGES = [
   { key: "prototipado", label: "Prototipado", group: "proyectos" },
   { key: "documento", label: "Documento funcional", group: "proyectos" },
   { key: "aprobacion", label: "Aprobación", group: "cliente", clientWait: true },
-  { key: "disenoVisual", label: "Diseño visual", group: "diseno" },
   { key: "desarrollo", label: "Desarrollo", group: "diseno" },
   { key: "qa", label: "Etapa QA", group: "proyectos" },
   { key: "procesos", label: "Pruebas QA Usuario Proyecto", group: "proyectos" },
@@ -292,7 +291,6 @@ const ROLES = {
   prototipado: "Área de proyectos — continuidad del flujo",
   documento: "Área de proyectos — documento funcional",
   aprobacion: "Cliente — aprobación / demora de firma",
-  disenoVisual: "Diseño visual — UI/UX previo a desarrollo",
   desarrollo: "Líder de proyecto — área de desarrollo",
   qa: "Coordinador de proyecto — área de desarrollo",
   pruebasCompletas: "Cliente — pruebas completas tras QA con usuario (pueden tomar semanas)",
@@ -411,7 +409,6 @@ function assembleRequirement({ nombre, area, early, desarrollo, estadoDoc, estad
   const emptyNote = "Sin fechas — completar en Detalle";
   const trailing = {
     aprobacion: emptyStage(responsableEtapa("aprobacion"), emptyNote),
-    disenoVisual: emptyStage(responsableEtapa("disenoVisual"), emptyNote),
     desarrollo: desarrollo || emptyStage(responsableEtapa("desarrollo"), emptyNote),
     qa: emptyStage(responsableEtapa("qa"), emptyNote),
     pruebasCompletas: emptyStage(responsableEtapa("pruebasCompletas"), emptyNote),
@@ -433,7 +430,6 @@ function assembleRequirement({ nombre, area, early, desarrollo, estadoDoc, estad
     etapas: {
       ...early,
       aprobacion: trailing.aprobacion,
-      disenoVisual: trailing.disenoVisual,
       desarrollo: trailing.desarrollo,
       qa: trailing.qa,
       pruebasCompletas: trailing.pruebasCompletas,
@@ -785,7 +781,6 @@ function buildCronoRows() {
       "prototipado",
       "documento",
       "aprobacion",
-      "disenoVisual",
     ]);
     const devSpan = spanFromStages(r.etapas, ["desarrollo", "qa", "procesos", "pruebasCompletas"]);
     return {
@@ -1064,13 +1059,13 @@ function weightedStagePct(stageKey) {
 /**
  * Columnas del Panorama ↔ etapas del Detalle:
  * - Diseño → Levantamiento, Prototipado, Documento funcional
- * - Desarrollo IT → Diseño visual, Desarrollo
+ * - Desarrollo IT → Desarrollo
  * - Pruebas QA → Etapa QA, Pruebas QA Usuario Proyecto, Pruebas completas
  * - Producción → Etapa producción
  */
 const PANORAMA_STAGES = [
   { key: "diseno", label: "Diseño", stageKeys: ["levantamiento", "prototipado", "documento"] },
-  { key: "desarrollo", label: "Desarrollo IT", stageKeys: ["disenoVisual", "desarrollo"] },
+  { key: "desarrollo", label: "Desarrollo IT", stageKeys: ["desarrollo"] },
   { key: "qa", label: "Pruebas QA", stageKeys: ["qa", "procesos", "pruebasCompletas"] },
   { key: "produccion", label: "Producción", stageKeys: ["produccion"] },
 ];
@@ -2324,7 +2319,7 @@ function buildStageEditsFromExplicit(row) {
 /**
  * Arma fechas por clasificación:
  * - Diseño → plan en Lev/Proto/Doc
- * - Desarrollo IT → etapas de Diseño cerradas + plan en Diseño visual/Desarrollo
+ * - Desarrollo IT → etapas de Diseño cerradas + plan en Desarrollo
  * - Pruebas QA → anteriores cerradas + plan en QA
  * - Producción → todas las etapas con fin real (cae en Listos)
  * responsable (columna global o por etapa) se aplica a las etapas tocadas.
@@ -2339,7 +2334,7 @@ function buildStageEditsFromClasificacion(row) {
 
   const groups = [
     { key: "diseno", stageKeys: ["levantamiento", "prototipado", "documento"] },
-    { key: "desarrollo", stageKeys: ["disenoVisual", "desarrollo"] },
+    { key: "desarrollo", stageKeys: ["desarrollo"] },
     { key: "qa", stageKeys: ["qa", "procesos", "pruebasCompletas"] },
     { key: "produccion", stageKeys: ["produccion"] },
   ];
@@ -2496,7 +2491,7 @@ function downloadExcelTemplate() {
     ["   usa columnas opcionales: levantamiento_responsable, desarrollo_responsable, etc."],
     ["4. clasificacion define en qué columna del Panorama cae y si va a Listos:"],
     ["   - Diseño → Levantamiento / Prototipado / Documento funcional"],
-    ["   - Desarrollo IT → Diseño visual / Desarrollo (etapas previas cerradas)"],
+    ["   - Desarrollo IT → Desarrollo (etapas previas cerradas)"],
     ["   - Pruebas QA → QA / Pruebas usuario / Pruebas completas"],
     ["   - Producción → todas las etapas con fin real → pestaña Listos en producción"],
     ["5. aplica: ambos | documento | desarrollo"],
@@ -3018,6 +3013,12 @@ window.__linkprojectApplyRemote = function applyRemote(data, meta = {}) {
   DEV_FUENTE = Array.isArray(payload.dev) ? payload.dev.map((r) => ({ ...r })) : [];
   stageEdits =
     payload.stageEdits && typeof payload.stageEdits === "object" ? { ...payload.stageEdits } : {};
+  // Quita etapa eliminada (Diseño visual) de datos antiguos
+  Object.keys(stageEdits).forEach((reqKey) => {
+    if (stageEdits[reqKey] && typeof stageEdits[reqKey] === "object") {
+      delete stageEdits[reqKey].disenoVisual;
+    }
+  });
   reqDecisions =
     payload.reqDecisions && typeof payload.reqDecisions === "object" ? { ...payload.reqDecisions } : {};
   reqOrder = Array.isArray(payload.reqOrder) ? payload.reqOrder.slice() : [];
