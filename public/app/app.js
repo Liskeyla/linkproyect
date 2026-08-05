@@ -180,20 +180,23 @@ function daysBetween(a, b) {
   return Math.round((b - a) / 86400000);
 }
 
-function formatDate(iso) {
-  if (!iso) return "—";
-  const d = parseDate(iso);
-  return d.toLocaleDateString("es-EC", { day: "2-digit", month: "2-digit", year: "numeric" });
-}
+const MONTHS_SHORT_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
-/** Fecha corta para celdas densas: 19 jul */
-function formatDateShort(iso) {
+/** Fecha con año: 21-jul-26 */
+function formatDate(iso) {
   if (!iso) return "—";
   if (iso === "hoy") return "hoy";
   const d = parseDate(iso);
   if (!d) return "—";
-  const txt = d.toLocaleDateString("es-EC", { day: "2-digit", month: "short" });
-  return txt.replace(/\./g, "").replace(/\s+/g, " ").trim();
+  const day = String(d.getDate()).padStart(2, "0");
+  const mon = MONTHS_SHORT_ES[d.getMonth()];
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${day}-${mon}-${yy}`;
+}
+
+/** Misma forma corta con año (celdas densas del Detalle) */
+function formatDateShort(iso) {
+  return formatDate(iso);
 }
 
 function formatRange(inicio, fin) {
@@ -3087,11 +3090,7 @@ function deleteRequirement(reqId) {
 
 (function init() {
   const hoy = new Date();
-  document.getElementById("fechaCorte").textContent = hoy.toLocaleDateString("es-EC", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  document.getElementById("fechaCorte").textContent = formatDate(toIso(hoy));
   document.getElementById("fechaDecision").value = hoy.toISOString().slice(0, 10);
   // Vacío hasta hidratar el workspace del usuario desde el servidor
   rebuildStagesList();
