@@ -2010,8 +2010,55 @@ function saveReqEditor(reqId, form) {
   );
 }
 
+function setDrawerExpanded(expanded) {
+  const drawer = document.getElementById("stageDrawer");
+  if (!drawer) return;
+  drawer.classList.toggle("is-expanded", !!expanded);
+  document.body.classList.toggle("drawer-expanded", !!expanded);
+
+  let backdrop = document.getElementById("drawerExpandBackdrop");
+  if (expanded) {
+    if (!backdrop) {
+      backdrop = document.createElement("button");
+      backdrop.type = "button";
+      backdrop.id = "drawerExpandBackdrop";
+      backdrop.className = "drawer-expand-backdrop";
+      backdrop.setAttribute("aria-label", "Salir de pantalla completa");
+      backdrop.addEventListener("click", () => setDrawerExpanded(false));
+      document.body.appendChild(backdrop);
+    }
+  } else if (backdrop) {
+    backdrop.remove();
+  }
+
+  const expandBtn = document.getElementById("drawerExpand");
+  if (expandBtn) {
+    expandBtn.textContent = expanded ? "⤡" : "⤢";
+    expandBtn.title = expanded ? "Salir de pantalla completa" : "Pantalla completa";
+    expandBtn.setAttribute(
+      "aria-label",
+      expanded ? "Salir de pantalla completa" : "Expandir a pantalla completa"
+    );
+  }
+  const corner = document.getElementById("drawerCornerExpand");
+  if (corner) {
+    corner.title = expanded ? "Salir de pantalla completa" : "Pantalla completa";
+    corner.setAttribute(
+      "aria-label",
+      expanded ? "Salir de pantalla completa" : "Expandir detalle a pantalla completa"
+    );
+  }
+}
+
+function toggleDrawerExpanded() {
+  const drawer = document.getElementById("stageDrawer");
+  if (!drawer || drawer.hidden) return;
+  setDrawerExpanded(!drawer.classList.contains("is-expanded"));
+}
+
 function closeStageDrawer() {
   activeEditReqId = null;
+  setDrawerExpanded(false);
   document.querySelector(".detail-layout")?.classList.remove("with-drawer");
   const drawer = document.getElementById("stageDrawer");
   if (drawer) drawer.hidden = true;
@@ -2814,6 +2861,17 @@ detailTbody.addEventListener("click", (e) => {
 });
 
 document.getElementById("drawerClose").addEventListener("click", closeStageDrawer);
+document.getElementById("drawerExpand")?.addEventListener("click", toggleDrawerExpanded);
+document.getElementById("drawerCornerExpand")?.addEventListener("click", toggleDrawerExpanded);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    const drawer = document.getElementById("stageDrawer");
+    if (drawer && !drawer.hidden && drawer.classList.contains("is-expanded")) {
+      e.preventDefault();
+      setDrawerExpanded(false);
+    }
+  }
+});
 
 document.getElementById("drawerActions").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-action]");

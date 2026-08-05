@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=20260805b" />
+  <link rel="stylesheet" href="styles.css?v=20260805c" />
 </head>
 <body>
   <div class="app">
@@ -256,12 +256,32 @@
         </div>
 
         <aside class="stage-drawer" id="stageDrawer" hidden aria-labelledby="drawerReq">
+          <button
+            type="button"
+            class="drawer-corner-expand"
+            id="drawerCornerExpand"
+            title="Pantalla completa"
+            aria-label="Expandir detalle a pantalla completa"
+          >
+            <span aria-hidden="true"></span>
+          </button>
           <div class="drawer-head">
             <div>
               <p class="drawer-kicker" id="drawerStage">Editar fechas</p>
               <h3 id="drawerReq">—</h3>
             </div>
-            <button type="button" class="btn ghost" id="drawerClose" aria-label="Cerrar panel">✕</button>
+            <div class="drawer-head-actions">
+              <button
+                type="button"
+                class="btn ghost"
+                id="drawerExpand"
+                title="Pantalla completa"
+                aria-label="Expandir a pantalla completa"
+              >
+                ⤢
+              </button>
+              <button type="button" class="btn ghost" id="drawerClose" aria-label="Cerrar panel">✕</button>
+            </div>
           </div>
           <div class="drawer-meta" id="drawerMeta"></div>
           <div class="drawer-grid" id="drawerGrid"></div>
@@ -387,7 +407,7 @@
   </dialog>
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260805b"></script>
-  <script src="auth-bridge.js?v=20260805b"></script>
+  <script src="app.js?v=20260805c"></script>
+  <script src="auth-bridge.js?v=20260805c"></script>
 </body>
 </html>

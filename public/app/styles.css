@@ -1598,6 +1598,85 @@ table {
   overflow: hidden;
 }
 
+.drawer-head-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.drawer-corner-expand {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  z-index: 3;
+  border-radius: 0 14px 0 0;
+}
+
+.drawer-corner-expand span {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 10px;
+  height: 10px;
+  border-top: 2px solid var(--navy);
+  border-right: 2px solid var(--navy);
+  opacity: 0.55;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.drawer-corner-expand:hover span,
+.drawer-corner-expand:focus-visible span {
+  opacity: 1;
+  transform: translate(1px, -1px);
+}
+
+.stage-drawer.is-expanded {
+  position: fixed;
+  inset: 12px;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  z-index: 80;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  border-radius: 16px;
+  padding: 20px 22px;
+  box-shadow: 0 24px 64px rgba(15, 43, 76, 0.28);
+  background: #fff;
+}
+
+.stage-drawer.is-expanded .drawer-corner-expand span {
+  transform: rotate(180deg);
+  opacity: 0.8;
+}
+
+.stage-drawer.is-expanded .drawer-grid {
+  max-height: none;
+}
+
+.drawer-expand-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 43, 76, 0.35);
+  z-index: 70;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+body.drawer-expanded {
+  overflow: hidden;
+}
+
 .drawer-grid {
   display: grid;
   gap: 8px;
