@@ -2042,6 +2042,7 @@ tr.req-row-active .req-cell {
     grid-template-columns: 1fr;
   }
   .stage-drawer { position: static; }
+  .stage-drawer.is-expanded { position: fixed; }
 }
 
 .carga-layout {
