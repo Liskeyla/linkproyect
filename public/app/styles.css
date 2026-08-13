@@ -816,6 +816,17 @@ table {
   font-weight: 700;
   font-size: 1rem;
   color: var(--navy);
+  min-width: 140px;
+}
+
+.panorama-table .total-cell .stage-metric .count {
+  font-size: 1rem;
+}
+
+.panorama-table tfoot .total-cell,
+.panorama-table tfoot .total-cell .count,
+.panorama-table tfoot .total-cell .pct {
+  color: #fff;
 }
 
 .stage-cell {
@@ -1366,6 +1377,63 @@ table {
   color: var(--muted);
   padding: 28px 16px;
   font-weight: 500;
+}
+
+#detailTable tbody tr.req-section-row {
+  cursor: default;
+  background: transparent;
+}
+
+#detailTable tbody tr.req-section-row td {
+  padding: 14px 12px 8px;
+  border-bottom: none;
+  background: linear-gradient(90deg, #eef4fb 0%, #f7fafc 55%, #ffffff 100%);
+  vertical-align: middle;
+}
+
+#detailTable tbody tr.req-section-row .req-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+
+#detailTable tbody tr.req-section-row .req-section-label {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #1e3a5f;
+}
+
+#detailTable tbody tr.req-section-row .req-section-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #d9e6f5;
+  color: #2c5282;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+#detailTable tbody tr.req-section-row[data-section="diseno"] .req-section-label {
+  color: #1a4d7c;
+}
+
+#detailTable tbody tr.req-section-row[data-section="desarrollo"] .req-section-label {
+  color: #5b2c8a;
+}
+
+#detailTable tbody tr.req-section-row[data-section="qa"] .req-section-label {
+  color: #0f5c4c;
+}
+
+#detailTable tbody tr.req-section-row[data-section="produccion"] .req-section-label {
+  color: #7a3e12;
 }
 
 #detailTable tbody tr.req-row {

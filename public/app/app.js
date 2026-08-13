@@ -1020,7 +1020,8 @@ function renderKpis() {
   const enDiseno = PANORAMA_TOTAL.diseno.count;
   const enDev = PANORAMA_TOTAL.desarrollo.count;
   const enQa = PANORAMA_TOTAL.qa.count;
-  const weightedProd = PANORAMA_TOTAL.produccion.pct ?? 0;
+  // Misma lógica del Panorama: % = reqs en producción / total
+  const avanceProd = PANORAMA_TOTAL.produccion.pct ?? sharePct(enProd, total);
 
   document.getElementById("kpiGrid").innerHTML = `
     <button type="button" class="kpi kpi-link" data-kpi="total" title="Ver todos en Detalle">
@@ -1031,32 +1032,19 @@ function renderKpis() {
     <button type="button" class="kpi kpi-link" data-kpi="produccion" title="Ver listos / producción">
       <span>Ya en producción</span>
       <strong>${enProd}</strong>
-      <small>Etapa producción</small>
+      <small>${formatPct(avanceProd)} del total</small>
     </button>
     <button type="button" class="kpi kpi-link" data-kpi="diseno" title="Ver en Detalle · Diseño">
       <span>En diseño</span>
       <strong>${enDiseno}</strong>
-      <small>Lev. · Proto. · Doc.</small>
+      <small>${formatPct(PANORAMA_TOTAL.diseno.pct ?? sharePct(enDiseno, total))} del total</small>
     </button>
-    <button type="button" class="kpi kpi-link" data-kpi="avance" title="Avance de los que están en producción">
-      <span>% avance producción</span>
-      <strong>${formatPct(weightedProd)}</strong>
-      <small>Dev ${enDev} · QA ${enQa}</small>
+    <button type="button" class="kpi kpi-link" data-kpi="avance" title="Avance a producción = requerimientos en Producción ÷ total">
+      <span>Avance a producción</span>
+      <strong>${formatPct(avanceProd)}</strong>
+      <small>Diseño ${enDiseno} · Dev ${enDev} · QA ${enQa} · Prod ${enProd}</small>
     </button>
   `;
-}
-
-function weightedStagePct(stageKey) {
-  let weight = 0;
-  let sum = 0;
-  PANORAMA_DATA.forEach((row) => {
-    const cell = row[stageKey];
-    if (!cell.count) return;
-    weight += cell.count;
-    sum += cell.count * cell.pct;
-  });
-  if (!weight) return 0;
-  return Math.round((sum / weight) * 10) / 10;
 }
 
 /**
@@ -1071,6 +1059,14 @@ const PANORAMA_STAGES = [
   { key: "desarrollo", label: "Desarrollo IT", stageKeys: ["desarrollo"] },
   { key: "qa", label: "Pruebas QA", stageKeys: ["qa", "procesos", "pruebasCompletas"] },
   { key: "produccion", label: "Producción", stageKeys: ["produccion"] },
+];
+
+/** Títulos de sección en Detalle (filas agrupadoras entre grupos). */
+const DETAIL_SECTION_GROUPS = [
+  { key: "diseno", label: "Levantamiento / Documentación" },
+  { key: "desarrollo", label: "Desarrollo" },
+  { key: "qa", label: "Pruebas QA" },
+  { key: "produccion", label: "Producción" },
 ];
 
 /** Se recalcula desde `requerimientos` (detalle) */
@@ -1088,32 +1084,54 @@ function stageHasActivity(et) {
   return !!(et.planInicio || et.planFin || et.realInicio || et.realFin);
 }
 
+function stageHasRealProgress(et) {
+  if (!et) return false;
+  return !!(et.realInicio || et.realFin);
+}
+
 function pickStageForBucket(req, stageKeys) {
-  // Última etapa del grupo con fechas (la más avanzada dentro de la columna)
+  // Última etapa del grupo con avance real; si no hay, la última con fechas planificadas
   let found = null;
   for (const key of stageKeys) {
     const et = req.etapas?.[key];
-    if (stageHasActivity(et)) found = et;
+    if (stageHasRealProgress(et) || stageHasActivity(et)) found = et;
   }
   return found;
 }
 
+/** Un grupo del Panorama está cerrado solo cuando todas sus etapas tienen fin real. */
+function groupFullyClosed(req, stageKeys) {
+  return stageKeys.every((key) => !!req.etapas?.[key]?.realFin);
+}
+
 /**
- * Cada requerimiento cuenta en UNA sola columna del panorama
- * (la etapa más avanzada con fechas), y se agrupa por su Área del Detalle.
+ * Etapa actual del requerimiento = primera columna del Panorama que aún no está cerrada.
+ * Así las fechas planificadas a futuro no “adelantan” el conteo.
+ * Cada req cuenta en UNA sola etapa (Diseño | Desarrollo IT | Pruebas QA | Producción).
  */
 function resolvePanoramaBucket(req) {
   if (isReqListo(req)) {
-    return { bucket: "produccion", et: pickStageForBucket(req, ["produccion"]) || req.etapas?.produccion || null };
+    return {
+      bucket: "produccion",
+      et: pickStageForBucket(req, ["produccion"]) || req.etapas?.produccion || null,
+    };
   }
 
-  // De más avanzada a más temprana, según el mapeo Detalle → Panorama
-  for (let i = PANORAMA_STAGES.length - 1; i >= 0; i -= 1) {
-    const item = PANORAMA_STAGES[i];
-    const et = pickStageForBucket(req, item.stageKeys);
-    if (et) return { bucket: item.key, et };
+  for (const item of PANORAMA_STAGES) {
+    if (!groupFullyClosed(req, item.stageKeys)) {
+      return { bucket: item.key, et: pickStageForBucket(req, item.stageKeys) };
+    }
   }
-  return { bucket: "diseno", et: null };
+  return { bucket: "produccion", et: req.etapas?.produccion || null };
+}
+
+/**
+ * % de reparto: (reqs en la etapa / total del área) × 100
+ * Un decimal, como en la lógica documentada (ej. 6/11 = 54.5%).
+ */
+function sharePct(count, total) {
+  if (!total || !count) return 0;
+  return Math.round((count / total) * 1000) / 10;
 }
 
 function recomputePanoramaFromDetail() {
@@ -1124,10 +1142,10 @@ function recomputePanoramaFromDetail() {
     if (!byArea.has(key)) {
       byArea.set(key, {
         area: key,
-        diseno: { count: 0, pctSum: 0 },
-        desarrollo: { count: 0, pctSum: 0 },
-        qa: { count: 0, pctSum: 0 },
-        produccion: { count: 0, pctSum: 0 },
+        diseno: { count: 0 },
+        desarrollo: { count: 0 },
+        qa: { count: 0 },
+        produccion: { count: 0 },
         total: 0,
       });
     }
@@ -1137,20 +1155,20 @@ function recomputePanoramaFromDetail() {
   requerimientos.forEach((req) => {
     const row = ensure(req.area);
     row.total += 1;
-    const { bucket, et } = resolvePanoramaBucket(req);
-    const pct = et ? stagePct(et) : 0;
+    const { bucket } = resolvePanoramaBucket(req);
     row[bucket].count += 1;
-    row[bucket].pctSum += pct == null ? 0 : pct;
   });
 
+  // Reparto: cada req es una parte del total del área
+  // Ej. Reservas 11 → Diseño 6 (54.5%), QA 2 (18.2%), Producción 3 (27.3%)
   PANORAMA_DATA = [...byArea.values()]
     .map((row) => {
       const out = { area: row.area, total: row.total };
       PANORAMA_STAGES.forEach((bucket) => {
-        const cell = row[bucket.key];
+        const count = row[bucket.key].count;
         out[bucket.key] = {
-          count: cell.count,
-          pct: cell.count ? Math.round((cell.pctSum / cell.count) * 10) / 10 : 0,
+          count,
+          pct: sharePct(count, row.total),
         };
       });
       return out;
@@ -1158,17 +1176,16 @@ function recomputePanoramaFromDetail() {
     .sort((a, b) => a.area.localeCompare(b.area, "es"));
 
   const totals = {
-    diseno: { count: 0, pctSum: 0 },
-    desarrollo: { count: 0, pctSum: 0 },
-    qa: { count: 0, pctSum: 0 },
-    produccion: { count: 0, pctSum: 0 },
+    diseno: { count: 0 },
+    desarrollo: { count: 0 },
+    qa: { count: 0 },
+    produccion: { count: 0 },
     total: 0,
   };
   PANORAMA_DATA.forEach((row) => {
     totals.total += row.total;
     PANORAMA_STAGES.forEach((bucket) => {
       totals[bucket.key].count += row[bucket.key].count;
-      totals[bucket.key].pctSum += row[bucket.key].count * row[bucket.key].pct;
     });
   });
 
@@ -1176,23 +1193,19 @@ function recomputePanoramaFromDetail() {
     total: totals.total,
     diseno: {
       count: totals.diseno.count,
-      pct: totals.diseno.count ? Math.round((totals.diseno.pctSum / totals.diseno.count) * 10) / 10 : null,
+      pct: sharePct(totals.diseno.count, totals.total),
     },
     desarrollo: {
       count: totals.desarrollo.count,
-      pct: totals.desarrollo.count
-        ? Math.round((totals.desarrollo.pctSum / totals.desarrollo.count) * 10) / 10
-        : null,
+      pct: sharePct(totals.desarrollo.count, totals.total),
     },
     qa: {
       count: totals.qa.count,
-      pct: totals.qa.count ? Math.round((totals.qa.pctSum / totals.qa.count) * 10) / 10 : null,
+      pct: sharePct(totals.qa.count, totals.total),
     },
     produccion: {
       count: totals.produccion.count,
-      pct: totals.produccion.count
-        ? Math.round((totals.produccion.pctSum / totals.produccion.count) * 10) / 10
-        : null,
+      pct: sharePct(totals.produccion.count, totals.total),
     },
   };
 }
@@ -1229,15 +1242,15 @@ function buildPanorama() {
         <td class="num">${i + 1}</td>
         <td class="area">${row.area}</td>
         ${PANORAMA_STAGES.map((s) => stageCell(row[s.key])).join("")}
-        <td class="total-cell">${row.total}</td>
+        <td class="total-cell">${totalCell(row.total)}</td>
       </tr>`
   ).join("");
 
   tfoot.innerHTML = `
     <tr>
       <td colspan="2">TOTAL</td>
-      ${PANORAMA_STAGES.map((s) => stageCellTotal(PANORAMA_TOTAL[s.key].count)).join("")}
-      <td class="total-cell">${PANORAMA_TOTAL.total}</td>
+      ${PANORAMA_STAGES.map((s) => stageCell(PANORAMA_TOTAL[s.key])).join("")}
+      <td class="total-cell">${totalCell(PANORAMA_TOTAL.total || 0)}</td>
     </tr>
   `;
 }
@@ -1253,13 +1266,15 @@ function stageCell({ count, pct }) {
     </td>`;
 }
 
-function stageCellTotal(count) {
+/** Total del área: cantidad + 100% (suma de la distribución por etapas). */
+function totalCell(count) {
+  const pct = count ? 100 : 0;
   return `
-    <td class="stage-cell">
-      <div class="stage-metric total-only">
-        <span class="count">${count}</span>
-      </div>
-    </td>`;
+    <div class="stage-metric">
+      <span class="count">${count}</span>
+      <div class="bar" aria-hidden="true"><i style="width:${pct}%"></i></div>
+      <span class="pct">${formatPct(pct)}</span>
+    </div>`;
 }
 
 function fillAreaFilter() {
@@ -1295,6 +1310,21 @@ function filteredReqs() {
     if (detailBucket === "listos") return listo;
     return !listo;
   });
+}
+
+/** Agrupa filas filtradas por etapa actual, manteniendo el orden relativo dentro de cada grupo. */
+function groupFilteredReqsBySection(rows) {
+  const buckets = new Map(DETAIL_SECTION_GROUPS.map((g) => [g.key, []]));
+  rows.forEach((r) => {
+    const { bucket } = resolvePanoramaBucket(r);
+    const key = buckets.has(bucket) ? bucket : "produccion";
+    buckets.get(key).push(r);
+  });
+  return DETAIL_SECTION_GROUPS.map((g) => ({
+    key: g.key,
+    label: g.label,
+    rows: buckets.get(g.key) || [],
+  })).filter((g) => g.rows.length > 0);
 }
 
 function updateDetailBucketUi() {
@@ -1673,16 +1703,28 @@ function renderDetail() {
         </td>
       </tr>`;
   } else {
-    tbody.innerHTML = rows
-      .map((r) => {
-        const totalPct = avg(STAGES.map((s) => stagePct(r.etapas[s.key])));
-        const stageCells = STAGES.map((s) => reqStageCell(r.id, s, r.etapas[s.key])).join("");
-        const rowActive = keepReq === r.id ? "req-row-active" : "";
-        const listoBadge = isReqListo(r)
-          ? `<span class="req-estado estado-prod-listo">Listo · producción</span>`
-          : "";
+    const sections = groupFilteredReqsBySection(rows);
+    tbody.innerHTML = sections
+      .map((section) => {
+        const header = `
+        <tr class="req-section-row" data-section="${section.key}">
+          <td colspan="${colSpan}">
+            <div class="req-section-title">
+              <span class="req-section-label">${escapeHtml(section.label)}</span>
+              <span class="req-section-count">${section.rows.length}</span>
+            </div>
+          </td>
+        </tr>`;
+        const body = section.rows
+          .map((r) => {
+            const totalPct = avg(STAGES.map((s) => stagePct(r.etapas[s.key])));
+            const stageCells = STAGES.map((s) => reqStageCell(r.id, s, r.etapas[s.key])).join("");
+            const rowActive = keepReq === r.id ? "req-row-active" : "";
+            const listoBadge = isReqListo(r)
+              ? `<span class="req-estado estado-prod-listo">Listo · producción</span>`
+              : "";
 
-        return `
+            return `
         <tr data-id="${r.id}" class="req-row ${rowActive}" draggable="true" title="Arrastra la fila para cambiar el orden">
           <td class="num">
             <span class="drag-handle" data-drag-handle title="Arrastrar para reordenar" aria-label="Arrastrar">⋮⋮</span>
@@ -1712,6 +1754,9 @@ function renderDetail() {
             <div class="req-status ${r.decision}">${labelDecision(r.decision)}</div>
           </td>
         </tr>`;
+          })
+          .join("");
+        return header + body;
       })
       .join("");
   }
@@ -2755,13 +2800,15 @@ let dragMoved = false;
 
 detailTbody.addEventListener("mousedown", (e) => {
   const interactive = e.target.closest(".stage-hit, button, input, textarea, select, a, .mini-actions");
-  dragAllowed = !interactive && !!e.target.closest("tr[data-id]:not(.empty-row)");
+  dragAllowed =
+    !interactive &&
+    !!e.target.closest("tr.req-row[data-id]:not(.empty-row):not(.req-section-row)");
   dragMoved = false;
 });
 
 detailTbody.addEventListener("dragstart", (e) => {
-  const tr = e.target.closest("tr[data-id]");
-  if (!tr || !dragAllowed || tr.classList.contains("empty-row")) {
+  const tr = e.target.closest("tr.req-row[data-id]");
+  if (!tr || !dragAllowed || tr.classList.contains("empty-row") || tr.classList.contains("req-section-row")) {
     e.preventDefault();
     return;
   }
@@ -2783,8 +2830,8 @@ detailTbody.addEventListener("dragend", () => {
 });
 
 detailTbody.addEventListener("dragover", (e) => {
-  const tr = e.target.closest("tr[data-id]");
-  if (!tr || !dragReqId || tr.classList.contains("empty-row")) return;
+  const tr = e.target.closest("tr.req-row[data-id]");
+  if (!tr || !dragReqId || tr.classList.contains("empty-row") || tr.classList.contains("req-section-row")) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = "move";
   detailTbody.querySelectorAll("tr.drag-over").forEach((el) => el.classList.remove("drag-over"));
@@ -2792,14 +2839,14 @@ detailTbody.addEventListener("dragover", (e) => {
 });
 
 detailTbody.addEventListener("dragleave", (e) => {
-  const tr = e.target.closest("tr[data-id]");
+  const tr = e.target.closest("tr.req-row[data-id]");
   if (tr && !tr.contains(e.relatedTarget)) tr.classList.remove("drag-over");
 });
 
 detailTbody.addEventListener("drop", (e) => {
   e.preventDefault();
-  const tr = e.target.closest("tr[data-id]");
-  if (!tr || !dragReqId) return;
+  const tr = e.target.closest("tr.req-row[data-id]");
+  if (!tr || !dragReqId || tr.classList.contains("req-section-row")) return;
   const toId = Number(tr.dataset.id);
   tr.classList.remove("drag-over");
   if (reorderRequirement(dragReqId, toId)) {

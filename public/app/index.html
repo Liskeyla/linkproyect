@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=20260805c" />
+  <link rel="stylesheet" href="styles.css?v=20260811e" />
 </head>
 <body>
   <div class="app">
@@ -48,7 +48,8 @@
         <h1>Resumen ejecutivo</h1>
         <p>
           Indicadores de <strong>tu</strong> Detalle (Panorama, Cronograma y Decisión del mismo usuario).
-          Liskeyla (admin) y María (editor) planifican por separado: cada una ve solo sus requerimientos.
+          <strong>Avance a producción</strong> = requerimientos en Producción ÷ total
+          (misma lógica del Panorama).
         </p>
       </div>
       <div class="kpi-grid" id="kpiGrid"></div>
@@ -78,8 +79,10 @@
       <div class="panel-head">
         <h2>Panorama por área</h2>
         <p>
-          Se calcula solo con <strong>tu Detalle</strong>, agrupado por <strong>Área</strong>
-          (no comparte requerimientos con el otro usuario).
+          Se calcula solo con <strong>tu Detalle</strong>, agrupado por <strong>Área / módulo</strong>.
+          Cada requerimiento cuenta en <strong>una sola etapa</strong> (la primera que aún no tiene fin real en todas sus sub-etapas).
+          El <strong>%</strong> es el reparto: <em>(reqs en la etapa ÷ total del área) × 100</em>
+          (ej. Reservas 11 → Diseño 6 = 54.5%, QA 2 = 18.2%, Producción 3 = 27.3%).
           Diseño = Levantamiento + Prototipado + Doc. funcional ·
           Desarrollo IT = Desarrollo ·
           Pruebas QA = Etapa QA + Pruebas QA Usuario + Pruebas completas ·
@@ -409,7 +412,7 @@
   </dialog>
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260805c"></script>
-  <script src="auth-bridge.js?v=20260805c"></script>
+  <script src="app.js?v=20260811e"></script>
+  <script src="auth-bridge.js?v=20260811e"></script>
 </body>
 </html>
