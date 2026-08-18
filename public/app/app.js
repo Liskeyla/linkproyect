@@ -138,22 +138,24 @@ function calcCumplimiento(planFin, realFin, hoy = new Date()) {
   if (!planFin) return null;
   const plan = parseDate(planFin);
   if (!plan) return null;
+  const today = new Date(hoy);
+  today.setHours(0, 0, 0, 0);
 
   if (realFin) {
     const r = parseDate(realFin);
     if (!r) return null;
     if (r <= plan) return 100;
-    const delay = daysBetween(plan, r);
+    const delay = businessDaysAfter(plan, r);
     return Math.max(0, Math.round(100 - delay * 5));
   }
 
-  if (hoy <= plan) {
+  if (today <= plan) {
     const totalWindow = 14;
-    const remaining = daysBetween(hoy, plan);
+    const remaining = businessDaysAfter(today, plan);
     return Math.min(100, Math.round((remaining / totalWindow) * 100));
   }
 
-  const overdue = daysBetween(plan, hoy);
+  const overdue = businessDaysAfter(plan, today);
   return Math.max(0, Math.round(100 - overdue * 8));
 }
 
@@ -178,6 +180,43 @@ function addDaysIso(iso, n) {
 
 function daysBetween(a, b) {
   return Math.round((b - a) / 86400000);
+}
+
+function isWeekend(d) {
+  const day = d.getDay();
+  return day === 0 || day === 6;
+}
+
+/**
+ * Días laborables (lun–vie) entre dos fechas, inclusive.
+ * Sábado y domingo no cuentan. Si las fechas vienen invertidas, se ordenan.
+ */
+function businessDaysInclusive(a, b) {
+  if (!a || !b) return 0;
+  let start = new Date(a);
+  let end = new Date(b);
+  start.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+  if (end < start) [start, end] = [end, start];
+  let count = 0;
+  const cur = new Date(start);
+  while (cur <= end) {
+    if (!isWeekend(cur)) count += 1;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count;
+}
+
+/** Días laborables estrictamente posteriores a `from`, inclusive de `to`. */
+function businessDaysAfter(from, to) {
+  if (!from || !to) return 0;
+  const start = new Date(from);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() + 1);
+  const end = new Date(to);
+  end.setHours(0, 0, 0, 0);
+  if (end < start) return 0;
+  return businessDaysInclusive(start, end);
 }
 
 const MONTHS_SHORT_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
@@ -380,7 +419,7 @@ function rangeDays(inicio, fin) {
   const a = parseDate(inicio);
   const b = parseDate(fin);
   if (!a || !b) return 0;
-  return Math.max(1, Math.abs(daysBetween(a, b)) + 1);
+  return businessDaysInclusive(a, b);
 }
 
 /** Estima dificultad (baja/media/alta) según duración planificada */
@@ -1379,7 +1418,7 @@ function durationDays(inicio, fin) {
   const a = parseDate(inicio);
   const b = parseDate(fin);
   if (!a || !b) return null;
-  return Math.max(1, daysBetween(a, b) + 1);
+  return businessDaysInclusive(a, b);
 }
 
 function daysOverdue(planFin, effectiveFin) {
@@ -1387,14 +1426,15 @@ function daysOverdue(planFin, effectiveFin) {
   const plan = parseDate(planFin);
   const fin = parseDate(effectiveFin);
   if (!plan || !fin || fin <= plan) return null;
-  return daysBetween(plan, fin);
+  const delay = businessDaysAfter(plan, fin);
+  return delay > 0 ? delay : null;
 }
 
 /**
  * Métrica de fecha real:
  * - Parte del inicio real capturado por el usuario
- * - Si no hay fin real, cuenta días hasta hoy
- * - Si ya pasó el fin planificado, calcula días de retraso
+ * - Si no hay fin real, cuenta días laborables hasta hoy
+ * - Si ya pasó el fin planificado, calcula días laborables de retraso
  */
 function realStageMetrics(et) {
   const hoy = todayIso();
@@ -1443,7 +1483,7 @@ function delayHtml(metrics) {
   if (!metrics?.delayDays) {
     return `<span class="delay-pill delay-empty" aria-hidden="true">&nbsp;</span>`;
   }
-  return `<span class="delay-pill" title="Días de retraso vs fin planificado">+${metrics.delayDays}d</span>`;
+  return `<span class="delay-pill" title="Días laborables de retraso vs fin planificado">+${metrics.delayDays}d</span>`;
 }
 
 function daysDelta(planDays, realDays) {
@@ -1484,11 +1524,13 @@ function reqStageCell(reqId, stageDef, et) {
   const maxDays = Math.max(planDays || 0, realDays || 0, 1);
 
   const planDaysHtml =
-    planDays == null ? `<strong class="duo-days muted">—</strong>` : `<strong class="duo-days">${planDays}<small>d</small></strong>`;
+    planDays == null
+      ? `<strong class="duo-days muted">—</strong>`
+      : `<strong class="duo-days" title="${planDays} días laborables (lun–vie)">${planDays}<small>d</small></strong>`;
   const realDaysHtml =
     realDays == null
       ? `<strong class="duo-days muted">—</strong>`
-      : `<strong class="duo-days ${tone}">${realDays}<small>d</small></strong>`;
+      : `<strong class="duo-days ${tone}" title="${realDays} días laborables (lun–vie)">${realDays}<small>d</small></strong>`;
 
   const planRange = dateRangeHtml(et.planInicio, et.planFin, {
     label: stageDef.production ? "Producción planificada" : "Planificado",
@@ -1581,7 +1623,7 @@ function reqClienteEsperaCell(reqId, stageDef, et) {
   const realDaysHtml =
     realDays == null
       ? `<strong class="duo-days muted">—</strong>`
-      : `<strong class="duo-days ${tone}">${realDays}<small>d</small></strong>`;
+      : `<strong class="duo-days ${tone}" title="${realDays} días laborables (lun–vie)">${realDays}<small>d</small></strong>`;
 
   const realRange = dateRangeHtml(inicio, done ? fin : inicio ? "hoy" : null, {
     tone,
@@ -1876,7 +1918,7 @@ function editStageSection(req, stageDef) {
           <textarea name="${stageDef.key}.avance" rows="2">${escapeHtml(et.avance || "")}</textarea>
         </label>
       </div>
-      ${metrics.delayDays ? `<p class="edit-stage-delay">+${metrics.delayDays}d retraso vs fin planificado</p>` : ""}
+      ${metrics.delayDays ? `<p class="edit-stage-delay">+${metrics.delayDays}d retraso vs fin planificado (días laborables)</p>` : ""}
     </section>`;
 }
 
