@@ -50,8 +50,8 @@ function isMariaUser() {
   return currentUserEmail() === "mpluas@awenandwis.com";
 }
 
-function isTmsSharedUser() {
-  return isLmsProfile() || isMariaUser() || !!currentUser()?.sharedBoard;
+function isTmsLookUser() {
+  return isLmsProfile() || isMariaUser();
 }
 
 /** Columnas de etapa visibles en Detalle (LMS solo ve las 3 de documentación). */
@@ -67,7 +67,7 @@ function showDetailExtraCols() {
 window.__linkprojectApplyProfile = function applyProfile(user) {
   currentProfile = String(user?.profile || "default").toLowerCase();
   document.body.classList.toggle("profile-lms", isLmsProfile());
-  document.body.classList.toggle("profile-tms", isTmsSharedUser());
+  document.body.classList.toggle("profile-tms", isTmsLookUser());
   const legend = document.querySelector(".ux-legend");
   if (legend) legend.hidden = isLmsProfile();
 };
@@ -739,13 +739,8 @@ function syncWorkspaceUiForUser() {
   const btn = document.getElementById("btnResetData");
   if (!btn) return;
   btn.hidden = false;
-  if (isTmsSharedUser()) {
-    btn.textContent = "Vaciar tablero TMS";
-    btn.title = "Borra el tablero compartido de María y LMS (TMS 2.0)";
-  } else {
-    btn.textContent = "Vaciar mi tablero";
-    btn.title = "Borra solo tus requerimientos (no afecta al otro usuario)";
-  }
+  btn.textContent = "Vaciar mi tablero";
+  btn.title = "Borra solo tus requerimientos (no afecta a los demás usuarios)";
 }
 
 function upsertReqFuente(item, estado) {
@@ -1450,7 +1445,7 @@ function updateDetailBucketUi() {
     if (title) title.textContent = "En curso y planificados";
     if (subtitle) {
       subtitle.innerHTML = isLmsProfile()
-        ? "Trabajo activo o planificado. Solo ves <strong>Levantamiento</strong>, <strong>Prototipado</strong> y <strong>Documento funcional</strong>; el resto lo actualiza María y se comparte."
+        ? "Tu tablero. Agrega requerimientos y completa <strong>Levantamiento</strong>, <strong>Prototipado</strong> y <strong>Documento funcional</strong>."
         : "Trabajo activo o planificado. Cuando todas las etapas tengan fin real (incluida producción), pasan a <strong>Listos</strong>.";
     }
     if (hint) {
@@ -3169,11 +3164,7 @@ document.querySelectorAll(".area-pick").forEach((sel) => {
 });
 
 document.getElementById("btnResetData").addEventListener("click", () => {
-  const shared = isTmsSharedUser();
-  const msg = shared
-    ? "¿Vaciar el tablero TMS 2.0? Se borra para María y para LMS."
-    : "¿Vaciar tu tablero? Solo borra tus requerimientos; el otro usuario no se ve afectado.";
-  if (!confirm(msg)) return;
+  if (!confirm("¿Vaciar tu tablero? Solo borra tus requerimientos; los demás usuarios no se ven afectados.")) return;
   REQ_FUENTE = [];
   DEV_FUENTE = [];
   stageEdits = {};
@@ -3282,7 +3273,7 @@ function deleteRequirement(reqId) {
   }
   const req = requerimientos.find((r) => r.id === reqId);
   if (!req) return;
-  if (!confirm(`¿Eliminar el requerimiento "${req.nombre}"?${isTmsSharedUser() ? " Se borra para María y LMS." : " Esta acción se guarda en tu workspace."}`)) {
+  if (!confirm(`¿Eliminar el requerimiento "${req.nombre}"? Esta acción se guarda en tu workspace.`)) {
     return;
   }
 

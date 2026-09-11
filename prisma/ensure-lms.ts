@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
-import { LMS_EMAIL, MARIA_EMAIL, TMS_SHARED_WORKSPACE_ID } from "../src/lib/profiles";
+import { LMS_EMAIL, MARIA_EMAIL } from "../src/lib/profiles";
 
 const prisma = new PrismaClient();
 
@@ -17,6 +17,8 @@ const EMPTY_PAYLOAD = JSON.stringify({
   detailDriven: true,
   boardEpoch: 2,
 });
+
+const SHARED_ID = "shared:tms-2";
 
 async function main() {
   const passwordHash = await bcrypt.hash("Andrea2026", 10);
@@ -38,30 +40,35 @@ async function main() {
   });
   console.log(`✓ LMS ${lms.email} / Andrea2026 (${lms.role})`);
 
-  let shared = await prisma.workspace.findUnique({ where: { id: TMS_SHARED_WORKSPACE_ID } });
-  if (!shared) {
-    const maria = await prisma.user.findUnique({ where: { email: MARIA_EMAIL } });
-    const mariaWs = maria
-      ? await prisma.workspace.findUnique({ where: { id: `user:${maria.id}` } })
-      : null;
-    shared = await prisma.workspace.create({
-      data: {
-        id: TMS_SHARED_WORKSPACE_ID,
-        payload: mariaWs?.payload || EMPTY_PAYLOAD,
-        updatedBy: LMS_EMAIL,
-      },
-    });
-    const nDoc = (() => {
-      try {
-        return JSON.parse(shared.payload)?.doc?.length || 0;
-      } catch {
-        return 0;
-      }
-    })();
-    console.log(`✓ Workspace compartido TMS 2.0 creado (${nDoc} requerimientos de María)`);
-  } else {
-    console.log("✓ Workspace compartido TMS 2.0 ya existía");
+  const maria = await prisma.user.findUnique({ where: { email: MARIA_EMAIL } });
+  const shared = await prisma.workspace.findUnique({ where: { id: SHARED_ID } });
+  if (maria && shared) {
+    const personalId = `user:${maria.id}`;
+    const mariaWs = await prisma.workspace.findUnique({ where: { id: personalId } });
+    if (!mariaWs || shared.updatedAt > mariaWs.updatedAt) {
+      await prisma.workspace.upsert({
+        where: { id: personalId },
+        create: {
+          id: personalId,
+          payload: shared.payload,
+          updatedBy: maria.email,
+        },
+        update: {
+          payload: shared.payload,
+          updatedBy: maria.email,
+        },
+      });
+      console.log("✓ Tablero TMS de María restaurado desde el workspace compartido (ya no se comparte)");
+    }
   }
+
+  const lmsWsId = `user:${lms.id}`;
+  await prisma.workspace.upsert({
+    where: { id: lmsWsId },
+    create: { id: lmsWsId, payload: EMPTY_PAYLOAD, updatedBy: LMS_EMAIL },
+    update: { payload: EMPTY_PAYLOAD, updatedBy: LMS_EMAIL },
+  });
+  console.log("✓ Tablero de Andrea vacío e independiente del TMS");
 }
 
 main()

@@ -1,6 +1,5 @@
 export const MARIA_EMAIL = "mpluas@awenandwis.com";
 export const LMS_EMAIL = "aordosgoitia@atcotrans.com";
-export const TMS_SHARED_WORKSPACE_ID = "shared:tms-2";
 
 export const LMS_STAGE_KEYS = ["levantamiento", "prototipado", "documento"] as const;
 
@@ -18,22 +17,18 @@ export function isLmsEmail(email?: string | null) {
   return normalizeEmail(email) === LMS_EMAIL;
 }
 
-export function isTmsSharedEmail(email?: string | null) {
-  return isMariaEmail(email) || isLmsEmail(email);
-}
-
 export function profileForEmail(email?: string | null): UserProfile {
   if (isLmsEmail(email)) return "lms";
   if (isMariaEmail(email)) return "maria";
   return "default";
 }
 
+/** Mismo encabezado visual que María; el tablero de datos es independiente. */
 export function projectNameForEmail(email?: string | null) {
-  return isTmsSharedEmail(email) ? "TMS 2.0" : "DMS Operaciones";
+  return isMariaEmail(email) || isLmsEmail(email) ? "TMS 2.0" : "DMS Operaciones";
 }
 
-export function workspaceIdForUser(user: { id: string; email?: string | null }) {
-  if (isTmsSharedEmail(user.email)) return TMS_SHARED_WORKSPACE_ID;
+export function workspaceIdForUser(user: { id: string }) {
   return `user:${user.id}`;
 }
 

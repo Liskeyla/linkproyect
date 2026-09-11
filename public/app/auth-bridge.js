@@ -7,8 +7,6 @@
   let currentUser = null;
   let saveTimer = null;
   let hydrated = false;
-  let lastUpdatedAt = "";
-  let pollTimer = null;
 
   function canWrite() {
     const role = currentUser?.role;
@@ -89,8 +87,7 @@
         }
         return;
       }
-      const saved = await res.json().catch(() => ({}));
-      if (saved.updatedAt) lastUpdatedAt = saved.updatedAt;
+      await res.json().catch(() => ({}));
     } catch (_) {
       if (typeof showToast === "function") {
         showToast("Error de red al guardar", "warn");
@@ -116,7 +113,6 @@
 
     const json = await res.json();
     currentUser = json.user || null;
-    lastUpdatedAt = json.updatedAt || "";
 
     const nameEl = document.getElementById("userNameLabel");
     if (nameEl && currentUser) {
@@ -138,7 +134,7 @@
     }
 
     document.body.classList.toggle("profile-lms", currentUser?.profile === "lms");
-    document.body.classList.toggle("profile-tms", !!currentUser?.sharedBoard);
+    document.body.classList.toggle("profile-tms", currentUser?.profile === "lms" || currentUser?.profile === "maria");
 
     if (typeof window.__linkprojectApplyProfile === "function") {
       window.__linkprojectApplyProfile(currentUser);
@@ -157,38 +153,11 @@
 
     applyReadonlyUi();
     hydrated = true;
-    startSharedBoardPoll();
 
     if (canWrite() || canDecide()) {
       schedulePersist();
     }
     return true;
-  }
-
-  function startSharedBoardPoll() {
-    if (pollTimer) clearInterval(pollTimer);
-    if (!currentUser?.sharedBoard) return;
-    pollTimer = setInterval(async () => {
-      if (!hydrated || !currentUser?.sharedBoard) return;
-      const drawer = document.getElementById("stageDrawer");
-      if (drawer && !drawer.hidden) return;
-      try {
-        const res = await fetch("/api/workspace");
-        if (!res.ok) return;
-        const json = await res.json();
-        const at = json.updatedAt || "";
-        if (!at || at === lastUpdatedAt) return;
-        lastUpdatedAt = at;
-        currentUser = json.user || currentUser;
-        if (typeof window.__linkprojectApplyRemote === "function") {
-          window.__linkprojectApplyRemote(json.data || {}, {
-            userId: currentUser?.id || currentUser?.email,
-          });
-        }
-      } catch (_) {
-        /* ignore */
-      }
-    }, 12000);
   }
 
   function clearLocalCache() {

@@ -4,7 +4,6 @@ import { authOptions, canWrite } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import {
   LMS_STAGE_KEYS,
-  MARIA_EMAIL,
   isLmsEmail,
   mergeLmsStageEdits,
   profileForEmail,
@@ -55,20 +54,9 @@ async function getSessionUser() {
   };
 }
 
-async function findLegacyUserWorkspace(email: string, userId: string) {
-  const own = await prisma.workspace.findUnique({ where: { id: `user:${userId}` } });
-  if (own) return own;
-
-  if (email === MARIA_EMAIL) return null;
-
-  const maria = await prisma.user.findUnique({ where: { email: MARIA_EMAIL } });
-  if (!maria) return null;
-  return prisma.workspace.findUnique({ where: { id: `user:${maria.id}` } });
-}
-
 /**
- * María y LMS (Andrea) comparten el tablero TMS 2.0.
- * El resto de usuarios sigue con workspace propio, vacío al crear.
+ * Cada usuario tiene su propio tablero.
+ * LMS (Andrea) y María ven el mismo visual TMS 2.0, pero los datos no se mezclan.
  */
 async function getOrCreateUserWorkspace(user: {
   id: string;
@@ -78,41 +66,24 @@ async function getOrCreateUserWorkspace(user: {
   let workspace = await prisma.workspace.findUnique({ where: { id } });
 
   if (!workspace) {
-    const legacy = id.startsWith("shared:")
-      ? await findLegacyUserWorkspace(user.email, user.id)
-      : null;
     workspace = await prisma.workspace.create({
       data: {
         id,
-        payload: legacy?.payload || JSON.stringify(EMPTY_PAYLOAD),
+        payload: JSON.stringify(EMPTY_PAYLOAD),
         updatedBy: user.email || null,
       },
     });
     return { workspace };
   }
 
-  if (id.startsWith("shared:")) {
-    const maria = await prisma.user.findUnique({ where: { email: MARIA_EMAIL } });
-    if (maria) {
-      const personal = await prisma.workspace.findUnique({ where: { id: `user:${maria.id}` } });
-      if (personal && personal.updatedAt > workspace.updatedAt) {
-        workspace = await prisma.workspace.update({
-          where: { id },
-          data: {
-            payload: personal.payload,
-            updatedBy: personal.updatedBy || user.email || null,
-          },
-        });
-      }
-    }
+  // LMS siempre parte de tablero propio; no hereda el TMS de María.
+  if (isLmsEmail(user.email)) {
     return { workspace };
   }
 
   let raw: {
     detailDriven?: boolean;
     boardEpoch?: number;
-    doc?: unknown[];
-    dev?: unknown[];
   } = {};
   try {
     raw = JSON.parse(workspace.payload) || {};
@@ -145,7 +116,7 @@ function publicUser(user: { id: string; email: string; name?: string | null; rol
     role: user.role,
     profile,
     projectName: projectNameForEmail(user.email),
-    sharedBoard: profile === "lms" || profile === "maria",
+    sharedBoard: false,
     detailStageKeys: profile === "lms" ? [...LMS_STAGE_KEYS] : null,
   };
 }
