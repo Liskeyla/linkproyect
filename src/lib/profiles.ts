@@ -23,9 +23,10 @@ export function profileForEmail(email?: string | null): UserProfile {
   return "default";
 }
 
-/** Mismo encabezado visual que María; el tablero de datos es independiente. */
 export function projectNameForEmail(email?: string | null) {
-  return isMariaEmail(email) || isLmsEmail(email) ? "TMS 2.0" : "DMS Operaciones";
+  if (isLmsEmail(email)) return "Atcotrans";
+  if (isMariaEmail(email)) return "TMS 2.0";
+  return "DMS Operaciones";
 }
 
 export function workspaceIdForUser(user: { id: string }) {

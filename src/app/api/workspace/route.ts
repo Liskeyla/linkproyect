@@ -56,7 +56,7 @@ async function getSessionUser() {
 
 /**
  * Cada usuario tiene su propio tablero.
- * LMS (Andrea) y María ven el mismo visual TMS 2.0, pero los datos no se mezclan.
+ * LMS (Andrea) ve proyecto Atcotrans; María ve TMS 2.0. Los datos no se mezclan.
  */
 async function getOrCreateUserWorkspace(user: {
   id: string;
