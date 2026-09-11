@@ -27,7 +27,7 @@ function scopedKey(base) {
   return `${base}:${storageUserId}`;
 }
 
-const LMS_STAGE_KEYS = ["levantamiento", "prototipado", "documento", "aprobacion"];
+const LMS_STAGE_KEYS = ["levantamiento", "documento", "aprobacion"];
 const LMS_CRONO_STAGES = [
   { key: "levantamiento", label: "Levantamiento", css: "lev" },
   { key: "documento", label: "Documentación", css: "docu" },
@@ -1472,7 +1472,7 @@ function updateDetailBucketUi() {
     if (title) title.textContent = "En curso y planificados";
     if (subtitle) {
       subtitle.innerHTML = isLmsProfile()
-        ? "Tu tablero. Agrega requerimientos y completa <strong>Levantamiento</strong>, <strong>Prototipado</strong> y <strong>Documento funcional</strong>."
+        ? "Tu tablero. Agrega requerimientos y completa <strong>Levantamiento</strong>, <strong>Documento funcional</strong> y <strong>Aprobación</strong>."
         : "Trabajo activo o planificado. Cuando todas las etapas tengan fin real (incluida producción), pasan a <strong>Listos</strong>.";
     }
     if (hint) {
