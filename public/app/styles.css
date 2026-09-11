@@ -1770,6 +1770,8 @@ table {
 }
 
 .edit-req-basics {
+  display: grid;
+  gap: 10px;
   padding: 10px 12px;
   border-radius: 12px;
   background: #f3f7fb;
@@ -1779,6 +1781,10 @@ table {
 .edit-req-basics .edit-field {
   display: grid;
   gap: 6px;
+}
+
+.edit-req-basics .edit-field.full input {
+  width: 100%;
 }
 
 .edit-intro {

@@ -35,18 +35,40 @@ export function workspaceIdForUser(user: { id: string }) {
 
 export function mergeLmsStageEdits(
   current: Record<string, unknown>,
-  incoming: Record<string, unknown>
+  incoming: Record<string, unknown>,
+  docs: unknown[] = []
 ) {
-  const out: Record<string, unknown> = { ...current };
-  for (const [reqKey, stages] of Object.entries(incoming || {})) {
-    if (!stages || typeof stages !== "object") continue;
+  const incomingObj = incoming || {};
+  const currentObj = current || {};
+  const docKeys = new Set(
+    (Array.isArray(docs) ? docs : [])
+      .map((row) =>
+        String((row as { nombre?: string })?.nombre || "")
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]+/g, " ")
+          .trim()
+      )
+      .filter(Boolean)
+  );
+
+  const keys = new Set([...Object.keys(currentObj), ...Object.keys(incomingObj)]);
+  const out: Record<string, unknown> = {};
+  for (const reqKey of keys) {
+    const inIncoming = Object.prototype.hasOwnProperty.call(incomingObj, reqKey);
+    if (!inIncoming && docKeys.size > 0 && !docKeys.has(reqKey)) continue;
+
+    const stages = incomingObj[reqKey];
     const prev =
-      out[reqKey] && typeof out[reqKey] === "object"
-        ? { ...(out[reqKey] as Record<string, unknown>) }
+      currentObj[reqKey] && typeof currentObj[reqKey] === "object"
+        ? { ...(currentObj[reqKey] as Record<string, unknown>) }
         : {};
-    for (const key of LMS_STAGE_KEYS) {
-      if (Object.prototype.hasOwnProperty.call(stages, key)) {
-        prev[key] = (stages as Record<string, unknown>)[key];
+    if (stages && typeof stages === "object") {
+      for (const key of LMS_STAGE_KEYS) {
+        if (Object.prototype.hasOwnProperty.call(stages, key)) {
+          prev[key] = (stages as Record<string, unknown>)[key];
+        }
       }
     }
     out[reqKey] = prev;

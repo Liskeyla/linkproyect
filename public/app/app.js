@@ -2008,8 +2008,20 @@ function openReqEditor(reqId, focusStageKey) {
 
   document.getElementById("drawerGrid").innerHTML = `
     <form id="reqEditForm" class="req-edit-form">
-      <p class="edit-intro">El <strong>Área</strong> agrupa el Panorama. Completa fechas por etapa y guarda: Panorama y Cronograma se actualizan solos.</p>
+      <p class="edit-intro">Puedes cambiar el <strong>nombre</strong> y el <strong>Área</strong>. Completa fechas por etapa y guarda: Panorama y Cronograma se actualizan solos.</p>
       <div class="edit-req-basics">
+        <label class="edit-field full">
+          <span>Nombre del requerimiento</span>
+          <input
+            type="text"
+            name="reqNombre"
+            id="editNombreInput"
+            required
+            value="${escapeHtml(req.nombre || "")}"
+            placeholder="Nombre del requerimiento"
+            autocomplete="off"
+          />
+        </label>
         <label class="edit-field">
           <span>Área</span>
           <div class="area-combo">
@@ -2041,6 +2053,14 @@ function openReqEditor(reqId, focusStageKey) {
       if (!areaPick.value) return;
       areaInput.value = areaPick.value;
     };
+  }
+  const nombreInput = document.getElementById("editNombreInput");
+  const drawerTitle = document.getElementById("drawerReq");
+  if (nombreInput && drawerTitle) {
+    nombreInput.addEventListener("input", () => {
+      const typed = String(nombreInput.value || "").trim();
+      drawerTitle.textContent = typed || req.nombre;
+    });
   }
 
   document.getElementById("drawerActions").innerHTML = `
@@ -2082,11 +2102,61 @@ function blankToNull(v) {
   return s || null;
 }
 
+function renameFuenteNombre(list, oldName, newName) {
+  list.forEach((row) => {
+    if (row.nombre === oldName || namesMatch(row.nombre, oldName)) {
+      row.nombre = newName;
+    }
+  });
+}
+
+function moveKeyedRecord(bag, oldKey, newKey) {
+  if (!bag || oldKey === newKey) return;
+  if (!Object.prototype.hasOwnProperty.call(bag, oldKey)) return;
+  if (!bag[newKey]) bag[newKey] = bag[oldKey];
+  else bag[newKey] = { ...bag[oldKey], ...bag[newKey] };
+  delete bag[oldKey];
+}
+
 function saveReqEditor(reqId, form) {
   const req = requerimientos.find((r) => r.id === reqId);
   if (!req) return;
 
   const fd = new FormData(form);
+  const oldName = req.nombre;
+  const oldKey = normName(oldName);
+  const newName = String(fd.get("reqNombre") || "").trim();
+  if (!newName) {
+    showToast("El nombre del requerimiento no puede quedar vacío", "warn");
+    document.getElementById("editNombreInput")?.focus();
+    return;
+  }
+  const nameTaken = requerimientos.some(
+    (r) => r.id !== reqId && normName(r.nombre) === normName(newName)
+  );
+  if (nameTaken) {
+    showToast(`Ya existe un requerimiento llamado "${newName}"`, "warn");
+    document.getElementById("editNombreInput")?.focus();
+    return;
+  }
+
+  if (newName !== oldName) {
+    renameFuenteNombre(REQ_FUENTE, oldName, newName);
+    renameFuenteNombre(DEV_FUENTE, oldName, newName);
+    req.nombre = newName;
+    const newKey = normName(newName);
+    if (oldKey !== newKey) {
+      moveKeyedRecord(stageEdits, oldKey, newKey);
+      moveKeyedRecord(reqDecisions, oldKey, newKey);
+      reqOrder = reqOrder.map((k) => (k === oldKey ? newKey : k));
+    }
+    saveFuentes();
+    saveReqDecisions();
+    saveReqOrder();
+    const drawerTitle = document.getElementById("drawerReq");
+    if (drawerTitle) drawerTitle.textContent = newName;
+  }
+
   const key = normName(req.nombre);
   if (!stageEdits[key]) stageEdits[key] = {};
 

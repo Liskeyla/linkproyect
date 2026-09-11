@@ -179,7 +179,8 @@ export async function PUT(req: Request) {
       stageEdits: isLmsEmail(user.email)
         ? mergeLmsStageEdits(
             (current.stageEdits || {}) as Record<string, unknown>,
-            incomingEdits as Record<string, unknown>
+            incomingEdits as Record<string, unknown>,
+            Array.isArray(body.doc) ? body.doc : current.doc
           )
         : incomingEdits,
       reqDecisions:
