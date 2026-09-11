@@ -7,6 +7,8 @@
   let currentUser = null;
   let saveTimer = null;
   let hydrated = false;
+  let lastUpdatedAt = "";
+  let pollTimer = null;
 
   function canWrite() {
     const role = currentUser?.role;
@@ -85,7 +87,10 @@
         if (typeof showToast === "function") {
           showToast(data.error || "No se pudo guardar en el servidor", "warn");
         }
+        return;
       }
+      const saved = await res.json().catch(() => ({}));
+      if (saved.updatedAt) lastUpdatedAt = saved.updatedAt;
     } catch (_) {
       if (typeof showToast === "function") {
         showToast("Error de red al guardar", "warn");
@@ -111,23 +116,32 @@
 
     const json = await res.json();
     currentUser = json.user || null;
+    lastUpdatedAt = json.updatedAt || "";
 
     const nameEl = document.getElementById("userNameLabel");
     if (nameEl && currentUser) {
-      const roleLabel = currentUser.role === "admin" ? "admin" : currentUser.role === "editor" ? "editor" : currentUser.role;
+      const profile = String(currentUser.profile || "").toLowerCase();
+      const roleLabel =
+        profile === "lms"
+          ? "LMS"
+          : currentUser.role === "admin"
+            ? "admin"
+            : currentUser.role === "editor"
+              ? "editor"
+              : currentUser.role;
       nameEl.textContent = `${currentUser.name || currentUser.email} · ${roleLabel}`;
     }
 
     const projectEl = document.getElementById("projectNameLabel");
     if (projectEl && currentUser) {
-      const email = String(currentUser.email || "").toLowerCase();
-      const name = String(currentUser.name || "").toLowerCase();
-      // María (editor) → TMS 2.0; resto mantiene DMS Operaciones
-      if (email === "mpluas@awenandwis.com" || name.includes("maría") || name.includes("maria")) {
-        projectEl.textContent = "TMS 2.0";
-      } else {
-        projectEl.textContent = "DMS Operaciones";
-      }
+      projectEl.textContent = currentUser.projectName || "DMS Operaciones";
+    }
+
+    document.body.classList.toggle("profile-lms", currentUser?.profile === "lms");
+    document.body.classList.toggle("profile-tms", !!currentUser?.sharedBoard);
+
+    if (typeof window.__linkprojectApplyProfile === "function") {
+      window.__linkprojectApplyProfile(currentUser);
     }
 
     const data = json.data || {};
@@ -143,11 +157,38 @@
 
     applyReadonlyUi();
     hydrated = true;
+    startSharedBoardPoll();
 
     if (canWrite() || canDecide()) {
       schedulePersist();
     }
     return true;
+  }
+
+  function startSharedBoardPoll() {
+    if (pollTimer) clearInterval(pollTimer);
+    if (!currentUser?.sharedBoard) return;
+    pollTimer = setInterval(async () => {
+      if (!hydrated || !currentUser?.sharedBoard) return;
+      const drawer = document.getElementById("stageDrawer");
+      if (drawer && !drawer.hidden) return;
+      try {
+        const res = await fetch("/api/workspace");
+        if (!res.ok) return;
+        const json = await res.json();
+        const at = json.updatedAt || "";
+        if (!at || at === lastUpdatedAt) return;
+        lastUpdatedAt = at;
+        currentUser = json.user || currentUser;
+        if (typeof window.__linkprojectApplyRemote === "function") {
+          window.__linkprojectApplyRemote(json.data || {}, {
+            userId: currentUser?.id || currentUser?.email,
+          });
+        }
+      } catch (_) {
+        /* ignore */
+      }
+    }, 12000);
   }
 
   function clearLocalCache() {

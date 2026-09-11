@@ -27,6 +27,51 @@ function scopedKey(base) {
   return `${base}:${storageUserId}`;
 }
 
+const LMS_STAGE_KEYS = ["levantamiento", "prototipado", "documento"];
+let currentProfile = "default";
+
+function currentUser() {
+  return typeof window.__linkprojectGetUser === "function" ? window.__linkprojectGetUser() : null;
+}
+
+function currentUserEmail() {
+  return String(currentUser()?.email || "").toLowerCase();
+}
+
+function isLmsProfile() {
+  if (currentProfile === "lms") return true;
+  const email = currentUserEmail();
+  const name = String(currentUser()?.name || "").toLowerCase();
+  return email === "aordosgoitia@atcotrans.com" || name.includes("ordosgoitia");
+}
+
+function isMariaUser() {
+  if (currentProfile === "maria") return true;
+  return currentUserEmail() === "mpluas@awenandwis.com";
+}
+
+function isTmsSharedUser() {
+  return isLmsProfile() || isMariaUser() || !!currentUser()?.sharedBoard;
+}
+
+/** Columnas de etapa visibles en Detalle (LMS solo ve las 3 de documentación). */
+function detailStages() {
+  if (!isLmsProfile()) return STAGES;
+  return STAGES.filter((s) => LMS_STAGE_KEYS.includes(s.key));
+}
+
+function showDetailExtraCols() {
+  return !isLmsProfile();
+}
+
+window.__linkprojectApplyProfile = function applyProfile(user) {
+  currentProfile = String(user?.profile || "default").toLowerCase();
+  document.body.classList.toggle("profile-lms", isLmsProfile());
+  document.body.classList.toggle("profile-tms", isTmsSharedUser());
+  const legend = document.querySelector(".ux-legend");
+  if (legend) legend.hidden = isLmsProfile();
+};
+
 function clearAllLinkprojectLocalCache() {
   try {
     const keys = [];
@@ -694,8 +739,13 @@ function syncWorkspaceUiForUser() {
   const btn = document.getElementById("btnResetData");
   if (!btn) return;
   btn.hidden = false;
-  btn.textContent = "Vaciar mi tablero";
-  btn.title = "Borra solo tus requerimientos (no afecta al otro usuario)";
+  if (isTmsSharedUser()) {
+    btn.textContent = "Vaciar tablero TMS";
+    btn.title = "Borra el tablero compartido de María y LMS (TMS 2.0)";
+  } else {
+    btn.textContent = "Vaciar mi tablero";
+    btn.title = "Borra solo tus requerimientos (no afecta al otro usuario)";
+  }
 }
 
 function upsertReqFuente(item, estado) {
@@ -1353,6 +1403,9 @@ function filteredReqs() {
 
 /** Agrupa filas filtradas por etapa actual, manteniendo el orden relativo dentro de cada grupo. */
 function groupFilteredReqsBySection(rows) {
+  if (isLmsProfile()) {
+    return [{ key: "diseno", label: "Levantamiento / Documentación", rows }];
+  }
   const buckets = new Map(DETAIL_SECTION_GROUPS.map((g) => [g.key, []]));
   rows.forEach((r) => {
     const { bucket } = resolvePanoramaBucket(r);
@@ -1396,8 +1449,9 @@ function updateDetailBucketUi() {
   } else {
     if (title) title.textContent = "En curso y planificados";
     if (subtitle) {
-      subtitle.innerHTML =
-        "Trabajo activo o planificado. Cuando todas las etapas tengan fin real (incluida producción), pasan a <strong>Listos</strong>.";
+      subtitle.innerHTML = isLmsProfile()
+        ? "Trabajo activo o planificado. Solo ves <strong>Levantamiento</strong>, <strong>Prototipado</strong> y <strong>Documento funcional</strong>; el resto lo actualiza María y se comparte."
+        : "Trabajo activo o planificado. Cuando todas las etapas tengan fin real (incluida producción), pasan a <strong>Listos</strong>.";
     }
     if (hint) {
       hint.textContent =
@@ -1671,7 +1725,8 @@ function slugEstado(estado) {
 function renderDetailHead() {
   const thead = document.querySelector("#detailTable thead tr");
   if (!thead) return;
-  const stageHeads = STAGES.map((s) => {
+  const stages = detailStages();
+  const stageHeads = stages.map((s) => {
     const cls =
       s.group === "cliente"
         ? "col-cliente"
@@ -1687,14 +1742,17 @@ function renderDetailHead() {
       : "";
     return `<th class="${cls}">${escapeHtml(s.label)}${removeBtn}</th>`;
   }).join("");
+  const extraHeads = showDetailExtraCols()
+    ? `<th>Cumpl. total</th>
+    <th>Decisión</th>`
+    : "";
   thead.innerHTML = `
     <th>N°</th>
     <th>Requerimiento</th>
     <th>Prioridad</th>
     <th>Área</th>
     ${stageHeads}
-    <th>Cumpl. total</th>
-    <th>Decisión</th>
+    ${extraHeads}
   `;
 }
 
@@ -1704,7 +1762,8 @@ function renderDetail() {
   const tbody = document.querySelector("#detailTable tbody");
   const rows = filteredReqs();
   const keepReq = activeEditReqId;
-  const colSpan = 6 + STAGES.length;
+  const visibleStages = detailStages();
+  const colSpan = 4 + visibleStages.length + (showDetailExtraCols() ? 2 : 0);
 
   if (!rows.length) {
     const hasFilters =
@@ -1759,11 +1818,23 @@ function renderDetail() {
         </tr>`;
         const body = section.rows
           .map((r) => {
-            const totalPct = avg(STAGES.map((s) => stagePct(r.etapas[s.key])));
-            const stageCells = STAGES.map((s) => reqStageCell(r.id, s, r.etapas[s.key])).join("");
+            const totalPct = avg(visibleStages.map((s) => stagePct(r.etapas[s.key])));
+            const stageCells = visibleStages.map((s) => reqStageCell(r.id, s, r.etapas[s.key])).join("");
             const rowActive = keepReq === r.id ? "req-row-active" : "";
             const listoBadge = isReqListo(r)
               ? `<span class="req-estado estado-prod-listo">Listo · producción</span>`
+              : "";
+            const extraCells = showDetailExtraCols()
+              ? `<td class="total-cell"><span class="pct-pill ${pctClass(totalPct)}">${totalPct}%</span></td>
+          <td>
+            <div class="mini-actions">
+              <button type="button" class="ok" data-action="aprobado">Aprobar</button>
+              <button type="button" class="warn" data-action="mejoras">Mejoras</button>
+              <button type="button" class="bad" data-action="rechazado">Rechazar</button>
+              <button type="button" class="del" data-delete-req="${r.id}" title="Eliminar requerimiento">Borrar</button>
+            </div>
+            <div class="req-status ${r.decision}">${labelDecision(r.decision)}</div>
+          </td>`
               : "";
 
             return `
@@ -1777,24 +1848,15 @@ function renderDetail() {
             <div class="req-estados">
               <span class="req-estado estado-dif-${r.dificultad || "media"}">Dif: ${(r.dificultad || "media").toUpperCase()}</span>
               ${r.estadoDoc ? `<span class="req-estado estado-${slugEstado(r.estadoDoc)}">Doc: ${r.estadoDoc}</span>` : ""}
-              ${r.estadoDev ? `<span class="req-estado estado-${slugEstado(r.estadoDev)}">Dev: ${r.estadoDev}</span>` : ""}
+              ${!isLmsProfile() && r.estadoDev ? `<span class="req-estado estado-${slugEstado(r.estadoDev)}">Dev: ${r.estadoDev}</span>` : ""}
               ${!r.estadoDoc && !r.estadoDev ? `<span class="req-estado estado-${slugEstado(r.estadoFuente)}">${r.estadoFuente}</span>` : ""}
-              ${listoBadge}
+              ${!isLmsProfile() ? listoBadge : ""}
             </div>
           </td>
           <td class="prio-cell"><span class="badge ${r.prioridad.toLowerCase()}">${r.prioridad}</span></td>
           <td class="area-cell">${r.area}</td>
           ${stageCells}
-          <td class="total-cell"><span class="pct-pill ${pctClass(totalPct)}">${totalPct}%</span></td>
-          <td>
-            <div class="mini-actions">
-              <button type="button" class="ok" data-action="aprobado">Aprobar</button>
-              <button type="button" class="warn" data-action="mejoras">Mejoras</button>
-              <button type="button" class="bad" data-action="rechazado">Rechazar</button>
-              <button type="button" class="del" data-delete-req="${r.id}" title="Eliminar requerimiento">Borrar</button>
-            </div>
-            <div class="req-status ${r.decision}">${labelDecision(r.decision)}</div>
-          </td>
+          ${extraCells}
         </tr>`;
           })
           .join("");
@@ -1927,7 +1989,8 @@ function openReqEditor(reqId, focusStageKey) {
   if (!req) return;
 
   activeEditReqId = reqId;
-  const totalPct = avg(STAGES.map((s) => stagePct(req.etapas[s.key])));
+  const visibleStages = detailStages();
+  const totalPct = avg(visibleStages.map((s) => stagePct(req.etapas[s.key])));
   const layout = document.querySelector(".detail-layout");
   const drawer = document.getElementById("stageDrawer");
 
@@ -1971,7 +2034,7 @@ function openReqEditor(reqId, focusStageKey) {
           </div>
         </label>
       </div>
-      ${STAGES.map((s) => editStageSection(req, s)).join("")}
+      ${visibleStages.map((s) => editStageSection(req, s)).join("")}
     </form>
   `;
   syncAreaSuggestions();
@@ -1991,11 +2054,15 @@ function openReqEditor(reqId, focusStageKey) {
       <button type="button" class="btn ghost" id="btnCancelEdit">Cerrar</button>
       <button type="button" class="btn danger" id="btnDeleteReq" data-delete-req="${req.id}">Eliminar requerimiento</button>
     </div>
-    <div class="drawer-actions-secondary">
+    ${
+      isLmsProfile()
+        ? ""
+        : `<div class="drawer-actions-secondary">
       <button type="button" class="btn ghost" data-action="aprobado" data-req="${req.id}">Aprobar</button>
       <button type="button" class="btn ghost" data-action="mejoras" data-req="${req.id}">Solicitar mejoras</button>
       <button type="button" class="btn ghost" data-action="rechazado" data-req="${req.id}">Rechazar</button>
-    </div>
+    </div>`
+    }
   `;
 
   const form = document.getElementById("reqEditForm");
@@ -2040,7 +2107,7 @@ function saveReqEditor(reqId, form) {
     saveFuentes();
   }
 
-  STAGES.forEach((s) => {
+  detailStages().forEach((s) => {
     const patch = {
       planInicio: blankToNull(fd.get(`${s.key}.planInicio`)),
       planFin: blankToNull(fd.get(`${s.key}.planFin`)),
@@ -3102,7 +3169,11 @@ document.querySelectorAll(".area-pick").forEach((sel) => {
 });
 
 document.getElementById("btnResetData").addEventListener("click", () => {
-  if (!confirm("¿Vaciar tu tablero? Solo borra tus requerimientos; el otro usuario no se ve afectado.")) return;
+  const shared = isTmsSharedUser();
+  const msg = shared
+    ? "¿Vaciar el tablero TMS 2.0? Se borra para María y para LMS."
+    : "¿Vaciar tu tablero? Solo borra tus requerimientos; el otro usuario no se ve afectado.";
+  if (!confirm(msg)) return;
   REQ_FUENTE = [];
   DEV_FUENTE = [];
   stageEdits = {};
@@ -3211,7 +3282,7 @@ function deleteRequirement(reqId) {
   }
   const req = requerimientos.find((r) => r.id === reqId);
   if (!req) return;
-  if (!confirm(`¿Eliminar el requerimiento "${req.nombre}"? Esta acción se guarda en tu workspace.`)) {
+  if (!confirm(`¿Eliminar el requerimiento "${req.nombre}"?${isTmsSharedUser() ? " Se borra para María y LMS." : " Esta acción se guarda en tu workspace."}`)) {
     return;
   }
 

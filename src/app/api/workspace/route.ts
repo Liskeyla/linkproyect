@@ -2,6 +2,15 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions, canWrite } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  LMS_STAGE_KEYS,
+  MARIA_EMAIL,
+  isLmsEmail,
+  mergeLmsStageEdits,
+  profileForEmail,
+  projectNameForEmail,
+  workspaceIdForUser,
+} from "@/lib/profiles";
 
 const EMPTY_PAYLOAD = {
   doc: [] as unknown[],
@@ -17,10 +26,6 @@ const EMPTY_PAYLOAD = {
   designSourceSanitized: true,
   boardEpoch: 2,
 };
-
-function workspaceIdFor(userId: string) {
-  return `user:${userId}`;
-}
 
 function parsePayload(raw: string) {
   try {
@@ -50,29 +55,59 @@ async function getSessionUser() {
   };
 }
 
+async function findLegacyUserWorkspace(email: string, userId: string) {
+  const own = await prisma.workspace.findUnique({ where: { id: `user:${userId}` } });
+  if (own) return own;
+
+  if (email === MARIA_EMAIL) return null;
+
+  const maria = await prisma.user.findUnique({ where: { email: MARIA_EMAIL } });
+  if (!maria) return null;
+  return prisma.workspace.findUnique({ where: { id: `user:${maria.id}` } });
+}
+
 /**
- * Misma lógica para todos: workspace propio, vacío al crear.
- * Si falta detailDriven O aún hay payload del catálogo legado sin dueño limpio, vacía.
+ * María y LMS (Andrea) comparten el tablero TMS 2.0.
+ * El resto de usuarios sigue con workspace propio, vacío al crear.
  */
 async function getOrCreateUserWorkspace(user: {
   id: string;
   email: string;
 }) {
-  const id = workspaceIdFor(user.id);
+  const id = workspaceIdForUser(user);
   let workspace = await prisma.workspace.findUnique({ where: { id } });
 
   if (!workspace) {
+    const legacy = id.startsWith("shared:")
+      ? await findLegacyUserWorkspace(user.email, user.id)
+      : null;
     workspace = await prisma.workspace.create({
       data: {
         id,
-        payload: JSON.stringify(EMPTY_PAYLOAD),
+        payload: legacy?.payload || JSON.stringify(EMPTY_PAYLOAD),
         updatedBy: user.email || null,
       },
     });
     return { workspace };
   }
 
-  // Leer JSON crudo (parsePayload rellena defaults y ocultaría la migración)
+  if (id.startsWith("shared:")) {
+    const maria = await prisma.user.findUnique({ where: { email: MARIA_EMAIL } });
+    if (maria) {
+      const personal = await prisma.workspace.findUnique({ where: { id: `user:${maria.id}` } });
+      if (personal && personal.updatedAt > workspace.updatedAt) {
+        workspace = await prisma.workspace.update({
+          where: { id },
+          data: {
+            payload: personal.payload,
+            updatedBy: personal.updatedBy || user.email || null,
+          },
+        });
+      }
+    }
+    return { workspace };
+  }
+
   let raw: {
     detailDriven?: boolean;
     boardEpoch?: number;
@@ -85,7 +120,7 @@ async function getOrCreateUserWorkspace(user: {
     raw = {};
   }
 
-  const BOARD_EPOCH = 2; // subir para forzar un wipe global de catálogo legado
+  const BOARD_EPOCH = 2;
   const needsWipe = !raw.detailDriven || raw.boardEpoch !== BOARD_EPOCH;
 
   if (needsWipe) {
@@ -101,6 +136,20 @@ async function getOrCreateUserWorkspace(user: {
   return { workspace };
 }
 
+function publicUser(user: { id: string; email: string; name?: string | null; role: string }) {
+  const profile = profileForEmail(user.email);
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    profile,
+    projectName: projectNameForEmail(user.email),
+    sharedBoard: profile === "lms" || profile === "maria",
+    detailStageKeys: profile === "lms" ? [...LMS_STAGE_KEYS] : null,
+  };
+}
+
 export async function GET() {
   const user = await getSessionUser();
   if (!user) {
@@ -114,12 +163,7 @@ export async function GET() {
     data: { ...data, userOwnedData: true, blankBoard: true, detailDriven: true, boardEpoch: 2 },
     updatedAt: workspace.updatedAt,
     updatedBy: workspace.updatedBy,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    },
+    user: publicUser(user),
   });
 }
 
@@ -141,7 +185,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Payload inválido" }, { status: 400 });
   }
 
-  const id = workspaceIdFor(user.id);
+  const id = workspaceIdForUser(user);
   const existing = await prisma.workspace.findUnique({ where: { id } });
   let current = EMPTY_PAYLOAD;
   if (existing) {
@@ -156,10 +200,17 @@ export async function PUT(req: Request) {
       decisionGlobal: body.decisionGlobal ?? current.decisionGlobal,
     };
   } else {
+    const incomingEdits =
+      body.stageEdits && typeof body.stageEdits === "object" ? body.stageEdits : current.stageEdits;
     next = {
       doc: Array.isArray(body.doc) ? body.doc : current.doc,
       dev: Array.isArray(body.dev) ? body.dev : current.dev,
-      stageEdits: body.stageEdits && typeof body.stageEdits === "object" ? body.stageEdits : current.stageEdits,
+      stageEdits: isLmsEmail(user.email)
+        ? mergeLmsStageEdits(
+            (current.stageEdits || {}) as Record<string, unknown>,
+            incomingEdits as Record<string, unknown>
+          )
+        : incomingEdits,
       reqDecisions:
         body.reqDecisions && typeof body.reqDecisions === "object" ? body.reqDecisions : current.reqDecisions,
       reqOrder: Array.isArray(body.reqOrder) ? body.reqOrder : current.reqOrder,

@@ -2595,3 +2595,15 @@ dialog::backdrop { background: rgba(15, 43, 76, 0.45); }
     grid-template-columns: 1fr;
   }
 }
+
+body.profile-lms .ux-legend {
+  display: none;
+}
+
+body.profile-lms .detail-summary {
+  min-width: 0;
+}
+
+body.profile-lms .detail-summary .stage-visual {
+  min-width: 150px;
+}
