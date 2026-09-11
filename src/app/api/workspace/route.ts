@@ -39,18 +39,17 @@ async function getSessionUser() {
   if (!session?.user?.email) return null;
 
   const email = session.user.email.toLowerCase();
-  let id = (session.user as { id?: string }).id;
-  if (!id) {
-    const dbUser = await prisma.user.findUnique({ where: { email } });
-    if (!dbUser) return null;
-    id = dbUser.id;
-  }
+  const dbUser = await prisma.user.findUnique({ where: { email } });
+  if (!dbUser) return null;
 
   return {
-    id,
+    id: dbUser.id,
     email,
-    name: session.user.name,
-    role: (session.user as { role?: string }).role || "viewer",
+    name: dbUser.name,
+    role: dbUser.role || (session.user as { role?: string }).role || "viewer",
+    projectName: dbUser.projectName || "",
+    company: dbUser.company || "",
+    projectArea: dbUser.projectArea || "",
   };
 }
 
@@ -107,7 +106,15 @@ async function getOrCreateUserWorkspace(user: {
   return { workspace };
 }
 
-function publicUser(user: { id: string; email: string; name?: string | null; role: string }) {
+function publicUser(user: {
+  id: string;
+  email: string;
+  name?: string | null;
+  role: string;
+  projectName?: string | null;
+  company?: string | null;
+  projectArea?: string | null;
+}) {
   const profile = profileForEmail(user.email);
   return {
     id: user.id,
@@ -115,7 +122,9 @@ function publicUser(user: { id: string; email: string; name?: string | null; rol
     email: user.email,
     role: user.role,
     profile,
-    projectName: projectNameForEmail(user.email),
+    projectName: projectNameForEmail(user.email, user.projectName),
+    company: user.company || "",
+    projectArea: user.projectArea || "",
     sharedBoard: false,
     detailStageKeys: profile === "lms" ? [...LMS_STAGE_KEYS] : null,
   };

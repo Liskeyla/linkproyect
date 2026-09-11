@@ -6,7 +6,7 @@
 }
 
 .login-card {
-  width: min(440px, 100%);
+  width: min(480px, 100%);
   background: #fff;
   border: 1px solid #d5dde6;
   border-radius: 18px;
@@ -130,4 +130,21 @@
 .login-card .hint ul {
   margin: 8px 0 0;
   padding-left: 18px;
+}
+
+.login-card .section-label {
+  margin: 4px 0 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #0f2b4c;
+}
+
+.login-card .field-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #5c6b7a;
+  line-height: 1.4;
 }

@@ -15,6 +15,10 @@ model User {
   /// admin | editor | gerencia | viewer
   role         String   @default("editor")
   active       Boolean  @default(true)
+  /// Nombre que se muestra en Proyecto (p. ej. Atcotrans, TMS 2.0)
+  projectName  String   @default("")
+  company      String   @default("")
+  projectArea  String   @default("")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }

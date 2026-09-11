@@ -23,7 +23,9 @@ export function profileForEmail(email?: string | null): UserProfile {
   return "default";
 }
 
-export function projectNameForEmail(email?: string | null) {
+export function projectNameForEmail(email?: string | null, stored?: string | null) {
+  const custom = String(stored || "").trim();
+  if (custom) return custom;
   if (isLmsEmail(email)) return "Atcotrans";
   if (isMariaEmail(email)) return "TMS 2.0";
   return "DMS Operaciones";

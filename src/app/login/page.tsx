@@ -12,6 +12,9 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState("editor");
+  const [projectName, setProjectName] = useState("");
+  const [company, setCompany] = useState("");
+  const [projectArea, setProjectArea] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -24,7 +27,15 @@ export default function LoginPage() {
         const res = await fetch("/api/auth/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password, name, role }),
+          body: JSON.stringify({
+            email,
+            password,
+            name,
+            role,
+            projectName,
+            company,
+            projectArea,
+          }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "No se pudo registrar");
@@ -72,6 +83,7 @@ export default function LoginPage() {
         <form onSubmit={onSubmit}>
           {mode === "register" && (
             <>
+              <p className="section-label">Tu usuario</p>
               <label>
                 Nombre
                 <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Tu nombre" />
@@ -84,6 +96,37 @@ export default function LoginPage() {
                   <option value="viewer">Solo lectura</option>
                 </select>
               </label>
+
+              <p className="section-label">Nuevo proyecto · lienzo en blanco</p>
+              <label>
+                Nombre del proyecto
+                <input
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  required
+                  maxLength={80}
+                  placeholder="Ej. Atcotrans, TMS 2.0, Portal clientes"
+                />
+              </label>
+              <label>
+                Empresa / cliente
+                <input
+                  value={company}
+                  onChange={(e) => setCompany(e.target.value)}
+                  placeholder="Empresa dueña del tablero"
+                />
+              </label>
+              <label>
+                Área o módulo principal
+                <input
+                  value={projectArea}
+                  onChange={(e) => setProjectArea(e.target.value)}
+                  placeholder="Ej. Operaciones, Liquidaciones, Reefer"
+                />
+              </label>
+              <p className="field-hint">
+                Se crea un tablero vacío, independiente. Luego agregas los requerimientos desde Detalle.
+              </p>
             </>
           )}
           <label>
@@ -113,7 +156,7 @@ export default function LoginPage() {
           {error && <p className="error">{error}</p>}
 
           <button type="submit" className="primary" disabled={loading}>
-            {loading ? "Espera…" : mode === "login" ? "Entrar" : "Registrarme y entrar"}
+            {loading ? "Espera…" : mode === "login" ? "Entrar" : "Crear proyecto y entrar"}
           </button>
         </form>
       </section>
