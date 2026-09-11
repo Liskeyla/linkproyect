@@ -27,7 +27,12 @@ function scopedKey(base) {
   return `${base}:${storageUserId}`;
 }
 
-const LMS_STAGE_KEYS = ["levantamiento", "prototipado", "documento"];
+const LMS_STAGE_KEYS = ["levantamiento", "prototipado", "documento", "aprobacion"];
+const LMS_CRONO_STAGES = [
+  { key: "levantamiento", label: "Levantamiento", css: "lev" },
+  { key: "documento", label: "Documentación", css: "docu" },
+  { key: "aprobacion", label: "Aprobación", css: "aprob" },
+];
 let currentProfile = "default";
 
 function currentUser() {
@@ -70,6 +75,7 @@ window.__linkprojectApplyProfile = function applyProfile(user) {
   document.body.classList.toggle("profile-tms", isTmsLookUser());
   const legend = document.querySelector(".ux-legend");
   if (legend) legend.hidden = isLmsProfile();
+  syncCronoLegend();
 };
 
 function clearAllLinkprojectLocalCache() {
@@ -848,6 +854,40 @@ function spanFromStages(etapas, keys) {
   return { inicio: inicio || fin, fin: fin || inicio };
 }
 
+function cronoStageBars() {
+  if (isLmsProfile()) return LMS_CRONO_STAGES;
+  return [
+    {
+      key: "doc",
+      label: "Documento funcional",
+      css: "doc",
+      keys: ["levantamiento", "prototipado", "documento", "aprobacion"],
+    },
+    {
+      key: "dev",
+      label: "Desarrollo",
+      css: "dev",
+      keys: ["desarrollo", "qa", "procesos", "pruebasCompletas"],
+    },
+  ];
+}
+
+function syncCronoLegend() {
+  const el = document.querySelector(".crono-legend");
+  if (!el) return;
+  if (isLmsProfile()) {
+    el.innerHTML = LMS_CRONO_STAGES.map(
+      (s) => `<span><i class="lg ${s.css}"></i> ${s.label}</span>`
+    ).join("") + `<span><i class="lg today"></i> Hoy</span>`;
+  } else {
+    el.innerHTML = `
+      <span><i class="lg doc"></i> Documento funcional</span>
+      <span><i class="lg dev"></i> Desarrollo</span>
+      <span><i class="lg today"></i> Hoy</span>
+    `;
+  }
+}
+
 function formToRow(form) {
   const fd = new FormData(form);
   return {
@@ -861,40 +901,21 @@ function formToRow(form) {
 }
 
 function buildCronoRows() {
-  // Solo Detalle: cada requerimiento es una fila del cronograma
+  const stages = cronoStageBars();
   return requerimientos.map((r, i) => {
-    const docSpan = spanFromStages(r.etapas, [
-      "levantamiento",
-      "prototipado",
-      "documento",
-      "aprobacion",
-    ]);
-    const devSpan = spanFromStages(r.etapas, ["desarrollo", "qa", "procesos", "pruebasCompletas"]);
+    const bars = stages
+      .map((s) => {
+        const span = spanFromStages(r.etapas, s.keys || [s.key]);
+        if (!span) return null;
+        return { ...s, inicio: span.inicio, fin: span.fin };
+      })
+      .filter(Boolean);
     return {
       key: r.id || `${normName(r.nombre)}-${i}`,
       reqId: r.id,
       nombre: r.nombre,
       area: r.area,
-      doc: docSpan
-        ? {
-            nombre: r.nombre,
-            area: r.area,
-            inicio: docSpan.inicio,
-            fin: docSpan.fin,
-            estado: r.estadoDoc || r.estadoFuente || "Pendiente",
-          }
-        : null,
-      docIndex: -1,
-      dev: devSpan
-        ? {
-            nombre: r.nombre,
-            area: r.area,
-            inicio: devSpan.inicio,
-            fin: devSpan.fin,
-            estado: r.estadoDev || r.estadoFuente || "Pendiente",
-          }
-        : null,
-      devIndex: -1,
+      bars,
       estado: r.estadoDev || r.estadoDoc || r.estadoFuente || "Pendiente",
     };
   });
@@ -902,9 +923,11 @@ function buildCronoRows() {
 
 function cronoRange() {
   const dates = [];
+  const lmsKeys = isLmsProfile() ? LMS_CRONO_STAGES.map((s) => s.key) : null;
   requerimientos.forEach((r) => {
-    Object.values(r.etapas || {}).forEach((et) => {
+    Object.entries(r.etapas || {}).forEach(([key, et]) => {
       if (!et) return;
+      if (lmsKeys && !lmsKeys.includes(key)) return;
       [et.planInicio, et.planFin, et.realInicio, et.realFin].forEach((d) => {
         const p = parseDate(d);
         if (p) dates.push(p);
@@ -978,6 +1001,14 @@ function renderCronograma() {
   const body = document.getElementById("cronoBody");
   if (!head || !body) return;
 
+  syncCronoLegend();
+  const lead = document.querySelector("#panel-cronograma .panel-head p");
+  if (lead) {
+    lead.innerHTML = isLmsProfile()
+      ? "Línea de tiempo de <strong>Levantamiento</strong>, <strong>Documentación</strong> y <strong>Aprobación</strong>. El resto de etapas no se muestra en este perfil."
+      : "Línea de tiempo de <strong>tu Detalle</strong> (fechas de documento y desarrollo). Independiente por usuario: aquí no aparecen los requerimientos del otro rol.";
+  }
+
   const rows = buildCronoRows();
   const { start, end } = cronoRange();
   const months = monthLabels(start, end);
@@ -1007,21 +1038,30 @@ function renderCronograma() {
 
   body.innerHTML = rows
     .map((row, i) => {
-      const estado = row.estado || row.dev?.estado || row.doc?.estado || "Pendiente";
-      const docBar = row.doc ? barStyle(row.doc.inicio, row.doc.fin, start, end) : null;
-      const devBar = row.dev ? barStyle(row.dev.inicio, row.dev.fin, start, end) : null;
+      const estado = row.estado || "Pendiente";
       const req = requerimientos.find((r) => namesMatch(r.nombre, row.nombre));
       const owner =
         sanitizeResponsable(
-          req?.etapas?.desarrollo?.responsable ||
+          req?.etapas?.aprobacion?.responsable ||
             req?.etapas?.documento?.responsable ||
             req?.etapas?.levantamiento?.responsable ||
+            req?.etapas?.desarrollo?.responsable ||
             ""
         ) || "Sin responsable";
-      const noBars = !docBar && !devBar;
+      const painted = (row.bars || [])
+        .map((bar, idx) => {
+          const style = barStyle(bar.inicio, bar.fin, start, end);
+          if (!style) return "";
+          const top = `${6 + idx * 16}px`;
+          return `<div class="crono-bar ${bar.css}" style="left:${style.left};width:${style.width};top:${top}" title="${escapeHtml(bar.label)}: ${formatDate(bar.inicio)} → ${formatDate(bar.fin)}">
+                  <span>${escapeHtml(bar.label)} · fin ${formatDate(bar.fin)}</span>
+                </div>`;
+        })
+        .join("");
+      const noBars = !(row.bars || []).length;
 
       return `
-      <div class="crono-row crono-row-link" data-key="${row.key}" data-req-id="${escapeHtml(row.reqId || "")}" title="Abrir en Detalle">
+      <div class="crono-row crono-row-link ${isLmsProfile() ? "crono-row-lms" : ""}" data-key="${row.key}" data-req-id="${escapeHtml(row.reqId || "")}" title="Abrir en Detalle">
         <div class="crono-meta">
           <div class="crono-item">
             <strong>${i + 1}. ${escapeHtml(row.nombre)}</strong>
@@ -1035,20 +1075,7 @@ function renderCronograma() {
         <div class="crono-track" style="grid-template-columns: repeat(${months.length}, minmax(72px, 1fr))">
           ${months.map(() => `<span class="crono-cell"></span>`).join("")}
           ${todayLeft != null ? `<i class="crono-today" style="left:${todayLeft}"></i>` : ""}
-          ${
-            docBar
-              ? `<div class="crono-bar doc" style="left:${docBar.left};width:${docBar.width}" title="Documento: ${formatDate(row.doc.inicio)} → ${formatDate(row.doc.fin)}">
-                  <span>Doc · fin ${formatDate(row.doc.fin)}</span>
-                </div>`
-              : ""
-          }
-          ${
-            devBar
-              ? `<div class="crono-bar dev" style="left:${devBar.left};width:${devBar.width};top:${docBar ? "28px" : "10px"}" title="Desarrollo: ${formatDate(row.dev.inicio)} → ${formatDate(row.dev.fin)}">
-                  <span>Dev · fin ${formatDate(row.dev.fin)}</span>
-                </div>`
-              : ""
-          }
+          ${painted}
           ${noBars ? `<div class="crono-bar-empty">Sin fechas aún · edita en Detalle</div>` : ""}
         </div>
       </div>`;

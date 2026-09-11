@@ -1,7 +1,7 @@
 export const MARIA_EMAIL = "mpluas@awenandwis.com";
 export const LMS_EMAIL = "aordosgoitia@atcotrans.com";
 
-export const LMS_STAGE_KEYS = ["levantamiento", "prototipado", "documento"] as const;
+export const LMS_STAGE_KEYS = ["levantamiento", "prototipado", "documento", "aprobacion"] as const;
 
 export type UserProfile = "lms" | "maria" | "default";
 

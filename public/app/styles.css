@@ -2613,3 +2613,23 @@ body.profile-lms .detail-summary {
 body.profile-lms .detail-summary .stage-visual {
   min-width: 150px;
 }
+
+body.profile-lms .crono-row-lms .crono-track {
+  min-height: 58px;
+}
+
+.crono-legend .lg.lev { background: #293448; }
+.crono-legend .lg.docu { background: #3d6b99; }
+.crono-legend .lg.aprob { background: #f6682f; }
+
+.crono-bar.lev {
+  background: linear-gradient(90deg, #1d2736, #293448);
+}
+
+.crono-bar.docu {
+  background: linear-gradient(90deg, #1a456e, #3d6b99);
+}
+
+.crono-bar.aprob {
+  background: linear-gradient(90deg, #d4531d, #f6682f);
+}
